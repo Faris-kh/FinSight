@@ -306,7 +306,7 @@ export default function FinSightApp() {
           month:              d.month,
           forecastedCashFlow: d.forecastedCashFlow,
           upperBound:         d.upperBound,
-          lowerBound:         d.lowerBound
+          lowerBound:         Math.max(0, d.lowerBound)
         }))
       ];
 
@@ -339,11 +339,17 @@ export default function FinSightApp() {
   const computeAssessment = (data) => {
     const bench = industryStandards[selectedIndustry];
 
-    const currentRatio      = data.currentAssets / data.currentLiabilities;
-    const profitMargin      = ((data.revenue - data.expenses) / data.revenue) * 100;
+    const currentRatio      = data.currentLiabilities > 0
+      ? data.currentAssets / data.currentLiabilities
+      : (data.currentAssets > 0 ? 999 : 0);
+    const profitMargin      = data.revenue > 0
+      ? ((data.revenue - data.expenses) / data.revenue) * 100
+      : 0;
     const hasNegativeEquity = data.equity <= 0;
     const debtToEquity      = hasNegativeEquity ? null : data.totalDebt / data.equity;
-    const roa               = (data.revenue - data.expenses) / data.totalAssets * 100;
+    const roa               = data.totalAssets > 0
+      ? (data.revenue - data.expenses) / data.totalAssets * 100
+      : 0;
     const hasDebt           = data.totalDebt > 0;
     const dscr              = hasDebt ? data.cashFlow / data.totalDebt : null;
 
@@ -423,11 +429,17 @@ export default function FinSightApp() {
   const calculateAssessment = () => {
     const bench = industryStandards[selectedIndustry];
 
-    const currentRatio      = financialData.currentAssets / financialData.currentLiabilities;
-    const profitMargin      = ((financialData.revenue - financialData.expenses) / financialData.revenue) * 100;
+    const currentRatio      = financialData.currentLiabilities > 0
+      ? financialData.currentAssets / financialData.currentLiabilities
+      : (financialData.currentAssets > 0 ? 999 : 0);
+    const profitMargin      = financialData.revenue > 0
+      ? ((financialData.revenue - financialData.expenses) / financialData.revenue) * 100
+      : 0;
     const hasNegativeEquity = financialData.equity <= 0;
     const debtToEquity      = hasNegativeEquity ? null : financialData.totalDebt / financialData.equity;
-    const roa               = (financialData.revenue - financialData.expenses) / financialData.totalAssets * 100;
+    const roa               = financialData.totalAssets > 0
+      ? (financialData.revenue - financialData.expenses) / financialData.totalAssets * 100
+      : 0;
     const hasDebt           = financialData.totalDebt > 0;
     const dscr              = hasDebt ? financialData.cashFlow / financialData.totalDebt : null;
 
@@ -783,9 +795,10 @@ export default function FinSightApp() {
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Revenue</span>
                 <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                  financialData.monthlyRevenue.length > 1 &&
-                  financialData.monthlyRevenue[financialData.monthlyRevenue.length - 1].revenue >= financialData.monthlyRevenue[0].revenue
-                    ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'
+                  financialData.monthlyRevenue.length > 1
+                    ? financialData.monthlyRevenue[financialData.monthlyRevenue.length - 1].revenue >= financialData.monthlyRevenue[0].revenue
+                      ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'
+                    : 'bg-slate-100 text-slate-500'
                 }`}>
                   {financialData.monthlyRevenue.length > 1
                     ? `${((financialData.monthlyRevenue[financialData.monthlyRevenue.length - 1].revenue - financialData.monthlyRevenue[0].revenue) / financialData.monthlyRevenue[0].revenue * 100).toFixed(1)}%`
@@ -949,7 +962,7 @@ export default function FinSightApp() {
               {/* UC3: Risk Radar — normalises all 5 ratios to 0-100 for visual health footprint */}
               {(() => {
                 const cr   = financialData.currentAssets / financialData.currentLiabilities;
-                const de   = financialData.equity > 0 ? financialData.totalDebt / financialData.equity : 0;
+                const de   = financialData.equity > 0 ? financialData.totalDebt / financialData.equity : 999;
                 const pm   = ((financialData.revenue - financialData.expenses) / financialData.revenue) * 100;
                 const roa  = ((financialData.revenue - financialData.expenses) / financialData.totalAssets) * 100;
                 const dscr = financialData.totalDebt > 0 ? financialData.cashFlow / financialData.totalDebt : 2.5;
