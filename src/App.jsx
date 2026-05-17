@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Upload, FileText, CheckCircle, AlertTriangle, XCircle, Calculator, TrendingUp, Settings, Save, BarChart3, ArrowRight, ArrowLeft, Building2, DollarSign, Circle, Brain, Zap } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, ComposedChart, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ReferenceLine } from 'recharts';
 
@@ -31,6 +31,8 @@ export default function FinSightApp() {
     companyName: '', revenue: '', expenses: '',
     currentAssets: '', currentLiabilities: '',
     totalAssets: '', totalDebt: '', equity: '', cashFlow: ''
+
+    
   });
   const [rawFileData, setRawFileData] = useState(null); // original parsed CSV rows, used for trend charts
   const [manualData, setManualData] = useState({
@@ -46,6 +48,12 @@ export default function FinSightApp() {
     roa:          { min: 5,    weight: 15, label: 'Return on Assets % (Min)' },
     dscr:         { min: 1.25, weight: 15, label: 'DSCR (Min)' }
   });
+
+  // Warm up backend on app load to prevent Render free-tier cold start delay
+  useEffect(() => {
+    fetch('https://finsight-backend.onrender.com/')
+      .catch(() => {}); // silent fail — just waking the server
+  }, []);
 
   const COLORS = ['#0F172A', '#1E293B', '#334155', '#475569', '#64748B'];
 
