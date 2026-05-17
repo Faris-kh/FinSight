@@ -264,7 +264,7 @@ export default function FinSightApp() {
   const runForecast = async () => {
     setIsForecasting(true);
     try {
-      console.log('API URL:', import.meta.env.VITE_API_URL);
+      
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/forecast`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
