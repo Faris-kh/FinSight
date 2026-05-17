@@ -388,7 +388,7 @@ export default function LandingPage() {
       {/* ── Footer ── */}
       <footer className="bg-white border-t border-slate-200 px-10 py-4 text-center">
         <p className="text-xs text-slate-400">
-          FinSight © 2025 — Graduation Project, Information Systems Department, IMSIU
+          FinSight © 2026 — Graduation Project, Information Systems Department, IMSIU
         </p>
       </footer>
 
