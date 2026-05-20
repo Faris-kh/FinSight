@@ -71,8 +71,27 @@ export const demoProfiles = [
   },
 ];
 
+// UC1 (Demo): Optional fields per profile — all 3 values set so every demo runs the full 7-ratio engine
+const demoOptionalFields = {
+  strong: {
+    inventory: 400000,       // Quick Ratio ≈ 2.7 — strong liquidity ex-inventory
+    interestExpense: 15000,  // ICR ≈ 16× — comfortable coverage
+    debtService: 120000,     // DSCR ≈ 2.0× — well above 1.25 benchmark
+  },
+  borderline: {
+    inventory: 380000,       // Quick Ratio ≈ 0.44 — thin liquidity ex-inventory
+    interestExpense: 52000,  // ICR ≈ 9.5× — adequate but margins under pressure
+    debtService: 390000,     // DSCR ≈ 1.26× — just above 1.25 benchmark, scrutiny not knockout
+  },
+  distressed: {
+    inventory: 180000,       // Quick Ratio ≈ 0.15 — severe liquidity stress
+    interestExpense: 60000,  // ICR < 0 — operating loss cannot cover interest (knockout)
+    debtService: 120000,     // DSCR < 0 — negative EBIT vs debt service
+  },
+};
+
 // UC1 (Demo): Same ETL aggregation as processDataWithMappings — sums flows, last row for balance sheet
-export function processDemoDataset(rows, companyName) {
+export function processDemoDataset(rows, companyName, profileKey) {
   const numRows = rows.length;
   const annualizationFactor = numRows < 12 ? (12 / numRows) : 1;
 
@@ -100,6 +119,8 @@ export function processDemoDataset(rows, companyName) {
   const totalDebt          = lastRow.Total_Debt;
   const equity             = lastRow.Equity;
 
+  const optional = profileKey ? demoOptionalFields[profileKey] : null;
+
   return {
     companyName,
     revenue:            Math.round(sumRevenue  * annualizationFactor),
@@ -110,6 +131,9 @@ export function processDemoDataset(rows, companyName) {
     totalDebt:          Math.round(totalDebt),
     equity:             Math.round(equity),
     cashFlow:           Math.round(sumCashFlow * annualizationFactor),
+    inventory:          optional?.inventory ?? null,
+    interestExpense:    optional?.interestExpense ?? null,
+    debtService:        optional?.debtService ?? null,
     monthlyRevenue,
     assetBreakdown: [
       { name: 'Current Assets',    value: Math.round(currentAssets) },

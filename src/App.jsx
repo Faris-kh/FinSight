@@ -3,13 +3,28 @@ import { Upload, FileText, CheckCircle, AlertTriangle, XCircle, Calculator, Tren
 import { demoDatasets, demoProfiles, DEMO_COLUMNS, processDemoDataset } from './utils/demoData';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, ComposedChart, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ReferenceLine } from 'recharts';
 
-// UC5: Industry benchmark thresholds — drives all scoring and knockout logic
+// UC5: Industry benchmark thresholds — drives all scoring and knockout logic (7-ratio system)
 const industryStandards = {
-  SaaS:         { minMargin: 15, minDSCR: 1.15, minCurrentRatio: 1.2, maxDebtEquity: 0.5,  minROA: 10 },
-  Retail:       { minMargin: 5,  minDSCR: 1.25, minCurrentRatio: 1.0, maxDebtEquity: 1.5,  minROA: 5  },
-  Construction: { minMargin: 10, minDSCR: 1.40, minCurrentRatio: 1.5, maxDebtEquity: 2.0,  minROA: 4  },
-  Logistics:    { minMargin: 8,  minDSCR: 1.20, minCurrentRatio: 1.2, maxDebtEquity: 2.0,  minROA: 4  },
-  Default:      { minMargin: 10, minDSCR: 1.25, minCurrentRatio: 1.2, maxDebtEquity: 1.5,  minROA: 5  }
+  SaaS: {
+    minEBITDAMargin: 15, minDSCR: 1.15, minCurrentRatio: 1.2,
+    maxDebtEquity: 0.5, minROA: 10, minQuickRatio: 1.0, minICR: 3.0
+  },
+  Retail: {
+    minEBITDAMargin: 5, minDSCR: 1.25, minCurrentRatio: 1.0,
+    maxDebtEquity: 1.5, minROA: 5, minQuickRatio: 0.8, minICR: 2.0
+  },
+  Construction: {
+    minEBITDAMargin: 10, minDSCR: 1.40, minCurrentRatio: 1.5,
+    maxDebtEquity: 2.0, minROA: 4, minQuickRatio: 0.9, minICR: 2.0
+  },
+  Logistics: {
+    minEBITDAMargin: 8, minDSCR: 1.20, minCurrentRatio: 1.2,
+    maxDebtEquity: 2.0, minROA: 4, minQuickRatio: 0.8, minICR: 2.0
+  },
+  Default: {
+    minEBITDAMargin: 10, minDSCR: 1.25, minCurrentRatio: 1.2,
+    maxDebtEquity: 1.5, minROA: 5, minQuickRatio: 0.8, minICR: 2.0
+  }
 };
 
 export default function FinSightApp() {
@@ -32,23 +47,26 @@ export default function FinSightApp() {
   const [fieldMappings, setFieldMappings] = useState({
     companyName: '', revenue: '', expenses: '',
     currentAssets: '', currentLiabilities: '',
-    totalAssets: '', totalDebt: '', equity: '', cashFlow: ''
-
-    
+    totalAssets: '', totalDebt: '', equity: '', cashFlow: '',
+    inventory: '', interestExpense: '', debtService: ''
   });
   const [rawFileData, setRawFileData] = useState(null); // original parsed CSV rows, used for trend charts
   const [manualData, setManualData] = useState({
     companyName: '', revenue: '', expenses: '',
     currentAssets: '', currentLiabilities: '',
-    totalAssets: '', totalDebt: '', equity: '', cashFlow: ''
+    totalAssets: '', totalDebt: '', equity: '', cashFlow: '',
+    inventory: null, interestExpense: null, debtService: null
   });
   const [portfolio, setPortfolio] = useState([]); // assessment history, saved on every UC5 run
-  const [thresholds, setThresholds] = useState({  // configurable scoring weights per ratio
-    currentRatio: { min: 1.5,  weight: 25, label: 'Current Ratio (Min)' },
-    debtToEquity: { max: 2.0,  weight: 25, label: 'Debt-to-Equity (Max)' },
-    profitMargin: { min: 10,   weight: 20, label: 'Profit Margin % (Min)' },
-    roa:          { min: 5,    weight: 15, label: 'Return on Assets % (Min)' },
-    dscr:         { min: 1.25, weight: 15, label: 'DSCR (Min)' }
+  const [portfolioViewMeta, setPortfolioViewMeta] = useState(null); // set when opening a saved report from portfolio
+  const [thresholds, setThresholds] = useState({  // configurable scoring weights per ratio (7 total)
+    currentRatio: { min: 1.2,  weight: 20, label: 'Current Ratio (Min)' },
+    debtToEquity: { max: 1.5,  weight: 20, label: 'Debt-to-Equity (Max)' },
+    ebitdaMargin: { min: 10,   weight: 15, label: 'EBITDA Margin % (Min)' },
+    roa:          { min: 5,    weight: 10, label: 'ROA — EBIT-based % (Min)' },
+    dscr:         { min: 1.25, weight: 15, label: 'DSCR (Min)' },
+    quickRatio:   { min: 0.8,  weight: 10, label: 'Quick Ratio (Min)' },
+    icr:          { min: 2.0,  weight: 10, label: 'Interest Coverage (Min)' }
   });
 
   // Warm up backend on app load to prevent Render free-tier cold start delay
@@ -115,7 +133,8 @@ export default function FinSightApp() {
     const mappings = {
       companyName: '', revenue: '', expenses: '',
       currentAssets: '', currentLiabilities: '',
-      totalAssets: '', totalDebt: '', equity: '', cashFlow: ''
+      totalAssets: '', totalDebt: '', equity: '', cashFlow: '',
+      inventory: '', interestExpense: '', debtService: ''
     };
     const matchRules = [
       { field: 'companyName',        keywords: ['company_name', 'business_name', 'firm_name', 'company', 'business', 'firm'] },
@@ -127,6 +146,9 @@ export default function FinSightApp() {
       { field: 'expenses',           keywords: ['expenses', 'expense', 'total_cost', 'cogs', 'operating_expenses'] },
       { field: 'equity',             keywords: ['equity', 'shareholders_equity', 'shareholder_equity', 'capital'] },
       { field: 'cashFlow',           keywords: ['cash_flow', 'cashflow', 'operating_cash', 'net_cash'] },
+      { field: 'inventory',          keywords: ['inventory', 'inventories', 'stock', 'goods'] },
+      { field: 'interestExpense',    keywords: ['interest_expense', 'interest_cost', 'profit_charge', 'finance_cost', 'financing_cost'] },
+      { field: 'debtService',        keywords: ['debt_service', 'loan_payment', 'loan_repayment', 'annual_debt_service'] },
     ];
     const usedColumns = new Set(); // prevents two fields claiming the same column
     matchRules.forEach(({ field, keywords }) => {
@@ -242,6 +264,31 @@ export default function FinSightApp() {
       companyName = lastRow[fieldMappings.companyName];
     }
 
+    // Optional fields — null when CSV column not mapped (not the same as 0)
+    let inventoryVal = null;
+    if (fieldMappings.inventory && lastRow[fieldMappings.inventory] !== undefined) {
+      const parsed = parseFloat(lastRow[fieldMappings.inventory]);
+      inventoryVal = isNaN(parsed) ? null : Math.round(parsed);
+    }
+
+    let interestExpenseSum = null;
+    if (fieldMappings.interestExpense) {
+      const sum = rows.reduce((acc, row) => {
+        const val = parseFloat(row[fieldMappings.interestExpense]);
+        return acc + (isNaN(val) ? 0 : val);
+      }, 0);
+      interestExpenseSum = Math.round(sum * annualizationFactor);
+    }
+
+    let debtServiceSum = null;
+    if (fieldMappings.debtService) {
+      const sum = rows.reduce((acc, row) => {
+        const val = parseFloat(row[fieldMappings.debtService]);
+        return acc + (isNaN(val) ? 0 : val);
+      }, 0);
+      debtServiceSum = Math.round(sum * annualizationFactor);
+    }
+
     setFinancialData({
       companyName,
       revenue:            Math.round(annualizedRevenue),
@@ -252,6 +299,9 @@ export default function FinSightApp() {
       totalDebt:          Math.round(totalDebt),
       equity:             Math.round(equity),
       cashFlow:           Math.round(annualizedCashFlow),
+      inventory:          inventoryVal,
+      interestExpense:    interestExpenseSum,
+      debtService:        debtServiceSum,
       monthlyRevenue,
       assetBreakdown: [
         { name: 'Current Assets',   value: Math.round(currentAssets) },
@@ -336,30 +386,44 @@ export default function FinSightApp() {
     setIsForecasting(false);
   };
 
-  // UC5 (Scenario): Pure assessment engine — takes any data object, returns results without touching state
-  // Used by the What-If sandbox for real-time recalculation as sliders move
-  const computeAssessment = (data) => {
+  // UC5: Dynamic 7-ratio assessment builder — shared by computeAssessment and calculateAssessment
+  const buildAssessment = (data) => {
     const bench = industryStandards[selectedIndustry];
+    const ebit = data.revenue - data.expenses;
 
-    const currentRatio      = data.currentLiabilities > 0
+    const currentRatio = data.currentLiabilities > 0
       ? data.currentAssets / data.currentLiabilities
       : (data.currentAssets > 0 ? 999 : 0);
-    const profitMargin      = data.revenue > 0
-      ? ((data.revenue - data.expenses) / data.revenue) * 100
-      : 0;
     const hasNegativeEquity = data.equity <= 0;
-    const debtToEquity      = hasNegativeEquity ? null : data.totalDebt / data.equity;
-    const roa               = data.totalAssets > 0
-      ? (data.revenue - data.expenses) / data.totalAssets * 100
-      : 0;
-    const hasDebt           = data.totalDebt > 0;
-    const dscr              = hasDebt ? data.cashFlow / data.totalDebt : null;
+    const debtToEquity = hasNegativeEquity ? null : (data.equity > 0 ? data.totalDebt / data.equity : 999);
+    const ebitdaMargin = data.revenue > 0 ? (ebit / data.revenue) * 100 : 0;
+    const roa = data.totalAssets > 0 ? (ebit / data.totalAssets) * 100 : 0;
+    const hasDebt = data.totalDebt > 0;
+
+    const hasDebtService = data.debtService != null && data.debtService > 0;
+    const dscr = !hasDebt ? null : hasDebtService ? ebit / data.debtService : null;
+    const dscrUnavailable = hasDebt && !hasDebtService;
+
+    const hasInventory = data.inventory != null;
+    const quickRatio = hasInventory && data.currentLiabilities > 0
+      ? (data.currentAssets - data.inventory) / data.currentLiabilities
+      : hasInventory ? (data.currentAssets - data.inventory > 0 ? 999 : 0)
+      : null;
+
+    const hasInterestExpense = data.interestExpense != null && data.interestExpense > 0;
+    const icr = hasInterestExpense ? ebit / data.interestExpense : null;
 
     const knockouts = [];
-    if (hasNegativeEquity) knockouts.push('Negative or zero equity — company is technically insolvent');
-    if (currentRatio < 0.5) knockouts.push('Critical liquidity failure — current ratio below 0.5');
-    if (data.cashFlow < 0 && data.totalDebt > 0) knockouts.push('Negative cash flow with outstanding debt');
-    if (hasDebt && dscr < bench.minDSCR) knockouts.push(`DSCR of ${dscr.toFixed(2)} — below ${selectedIndustry} minimum of ${bench.minDSCR}x`);
+    if (hasNegativeEquity)
+      knockouts.push('Negative or zero equity — company is technically insolvent');
+    if (currentRatio < 0.5)
+      knockouts.push('Critical liquidity failure — current ratio below 0.5');
+    if (data.cashFlow < 0 && data.totalDebt > 0)
+      knockouts.push('Negative cash flow with outstanding debt');
+    if (dscr !== null && hasDebt && dscr < bench.minDSCR)
+      knockouts.push(`DSCR of ${dscr.toFixed(2)} — below ${selectedIndustry} minimum of ${bench.minDSCR}x`);
+    if (icr !== null && icr < 1.0)
+      knockouts.push(`Interest Coverage of ${icr.toFixed(2)}x — cannot cover interest payments`);
 
     // Scores a single ratio 0-100 against the industry benchmark
     const scoreMetric = (value, threshold, type) => {
@@ -378,25 +442,50 @@ export default function FinSightApp() {
       }
     };
 
-    const scores = {
-      currentRatio: scoreMetric(currentRatio, bench.minCurrentRatio, 'min'),
-      debtToEquity: hasNegativeEquity ? 0 : scoreMetric(debtToEquity, bench.maxDebtEquity, 'max'),
-      profitMargin: scoreMetric(profitMargin, bench.minMargin,        'min'),
-      roa:          scoreMetric(roa,          bench.minROA,           'min'),
-      dscr:         !hasDebt ? 100 : dscr < 0 ? 0 : scoreMetric(dscr, bench.minDSCR, 'min')
-    };
+    const scores = {};
+    const activeRatios = [];
 
-    const totalWeight = thresholds.currentRatio.weight + thresholds.debtToEquity.weight +
-                        thresholds.profitMargin.weight + thresholds.roa.weight + thresholds.dscr.weight;
-    const weightedScore = (
-      scores.currentRatio * thresholds.currentRatio.weight +
-      scores.debtToEquity * thresholds.debtToEquity.weight +
-      scores.profitMargin * thresholds.profitMargin.weight +
-      scores.roa          * thresholds.roa.weight +
-      scores.dscr         * thresholds.dscr.weight
-    ) / totalWeight;
+    scores.currentRatio = scoreMetric(currentRatio, bench.minCurrentRatio, 'min');
+    activeRatios.push({ key: 'currentRatio', label: 'Current Ratio', weight: thresholds.currentRatio.weight });
 
-    // Knockouts cap the score at 30 and force REJECTED regardless of weighted score
+    scores.debtToEquity = hasNegativeEquity ? 0 : scoreMetric(debtToEquity, bench.maxDebtEquity, 'max');
+    activeRatios.push({ key: 'debtToEquity', label: 'Debt-to-Equity', weight: thresholds.debtToEquity.weight });
+
+    scores.ebitdaMargin = scoreMetric(ebitdaMargin, bench.minEBITDAMargin, 'min');
+    activeRatios.push({ key: 'ebitdaMargin', label: 'EBITDA Margin', weight: thresholds.ebitdaMargin.weight });
+
+    scores.roa = scoreMetric(roa, bench.minROA, 'min');
+    activeRatios.push({ key: 'roa', label: 'ROA (EBIT-based)', weight: thresholds.roa.weight });
+
+    if (dscr !== null) {
+      scores.dscr = dscr < 0 ? 0 : scoreMetric(dscr, bench.minDSCR, 'min');
+      activeRatios.push({ key: 'dscr', label: 'DSCR', weight: thresholds.dscr.weight });
+    } else if (!hasDebt) {
+      scores.dscr = 100;
+      activeRatios.push({ key: 'dscr', label: 'DSCR', weight: thresholds.dscr.weight });
+    }
+
+    if (quickRatio !== null) {
+      scores.quickRatio = scoreMetric(quickRatio, bench.minQuickRatio, 'min');
+      activeRatios.push({ key: 'quickRatio', label: 'Quick Ratio', weight: thresholds.quickRatio.weight });
+    }
+
+    if (icr !== null) {
+      scores.icr = scoreMetric(icr, bench.minICR, 'min');
+      activeRatios.push({ key: 'icr', label: 'Interest Coverage', weight: thresholds.icr.weight });
+    }
+
+    const totalActiveWeight = activeRatios.reduce((sum, r) => sum + r.weight, 0);
+    const weightedScore = activeRatios.reduce((sum, r) => {
+      const normalizedWeight = r.weight / totalActiveWeight;
+      return sum + (scores[r.key] * normalizedWeight);
+    }, 0);
+
+    const droppedRatios = [];
+    if (quickRatio === null) droppedRatios.push('Quick Ratio (inventory data not provided)');
+    if (icr === null && hasDebt) droppedRatios.push('Interest Coverage Ratio (interest expense not provided)');
+    if (dscrUnavailable) droppedRatios.push('DSCR (annual debt service amount not provided)');
+
     const overallScore = knockouts.length > 0 ? Math.min(weightedScore, 30) : weightedScore;
     const decision = knockouts.length > 0 ? 'REJECTED' : overallScore >= 70 ? 'APPROVED' : overallScore >= 50 ? 'REVIEW' : 'REJECTED';
 
@@ -404,141 +493,81 @@ export default function FinSightApp() {
       ratios: {
         currentRatio: currentRatio.toFixed(2),
         debtToEquity: hasNegativeEquity ? 'N/A (Negative Equity)' : debtToEquity.toFixed(2),
-        profitMargin: profitMargin.toFixed(2),
-        roa:          roa.toFixed(2),
-        dscr:         !hasDebt ? 'N/A (No Debt)' : dscr.toFixed(2)
+        ebitdaMargin: ebitdaMargin.toFixed(2),
+        roa: roa.toFixed(2),
+        dscr: !hasDebt ? 'N/A (No Debt)' : dscr !== null ? dscr.toFixed(2) : 'Unavailable',
+        quickRatio: quickRatio !== null ? quickRatio.toFixed(2) : null,
+        icr: icr !== null ? icr.toFixed(2) : null
       },
-      scores, overallScore: overallScore.toFixed(1), decision, knockouts,
+      scores,
+      activeRatios,
+      droppedRatios,
+      overallScore: overallScore.toFixed(1),
+      decision,
+      knockouts,
       strengths: [
         ...(scores.currentRatio >= 80 ? ['Strong liquidity position'] : []),
         ...(!hasNegativeEquity && scores.debtToEquity >= 80 ? ['Low debt relative to equity'] : []),
-        ...(scores.profitMargin >= 80 ? ['Healthy profit margins'] : []),
+        ...(scores.ebitdaMargin >= 80 ? ['Healthy operating margins'] : []),
         ...(scores.roa >= 80 ? ['Strong return on assets'] : []),
-        ...(!hasDebt || scores.dscr >= 80 ? ['Strong debt service capacity'] : []),
+        ...(!hasDebt || (scores.dscr && scores.dscr >= 80) ? ['Strong debt service capacity'] : []),
+        ...(scores.quickRatio && scores.quickRatio >= 80 ? ['Strong quick liquidity (excluding inventory)'] : []),
+        ...(scores.icr && scores.icr >= 80 ? ['Comfortable interest coverage'] : []),
       ],
       weaknesses: [
         ...(scores.currentRatio < 60 ? ['Weak liquidity — current assets may not cover short-term obligations'] : []),
         ...(hasNegativeEquity ? ['Negative equity — liabilities exceed assets'] : scores.debtToEquity < 60 ? ['High debt levels relative to equity'] : []),
-        ...(scores.profitMargin < 60 ? ['Low or negative profit margin'] : []),
+        ...(scores.ebitdaMargin < 60 ? ['Low or negative operating margin'] : []),
         ...(scores.roa < 60 ? ['Poor return on assets — inefficient use of asset base'] : []),
-        ...(hasDebt && scores.dscr < 60 ? ['Insufficient cash flow to comfortably service debt'] : []),
+        ...(hasDebt && scores.dscr && scores.dscr < 60 ? ['Insufficient cash flow to comfortably service debt'] : []),
+        ...(dscrUnavailable ? ['⚠️ DSCR could not be calculated — debt service data not provided'] : []),
+        ...(scores.quickRatio && scores.quickRatio < 60 ? ['Weak quick liquidity — reliant on inventory to cover obligations'] : []),
+        ...(scores.icr && scores.icr < 60 ? ['Low interest coverage — earnings barely cover interest payments'] : []),
       ]
     };
   };
 
-  // UC5: Scoring Engine — calculates 5 ratios, applies knockouts, produces APPROVED/REVIEW/REJECTED
+  // UC5 (Scenario): Pure assessment engine — takes any data object, returns results without touching state
+  // Used by the What-If sandbox for real-time recalculation as sliders move
+  const computeAssessment = (data) => buildAssessment(data);
+
+  // UC5: Scoring Engine — dynamic up to 7 ratios, applies knockouts, produces APPROVED/REVIEW/REJECTED
   // Also saves a snapshot to the portfolio and sets assessmentResults state
   const calculateAssessment = () => {
-    const bench = industryStandards[selectedIndustry];
+    const result = buildAssessment(financialData);
+    const { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses } = result;
 
-    const currentRatio      = financialData.currentLiabilities > 0
-      ? financialData.currentAssets / financialData.currentLiabilities
-      : (financialData.currentAssets > 0 ? 999 : 0);
-    const profitMargin      = financialData.revenue > 0
-      ? ((financialData.revenue - financialData.expenses) / financialData.revenue) * 100
-      : 0;
-    const hasNegativeEquity = financialData.equity <= 0;
-    const debtToEquity      = hasNegativeEquity ? null : financialData.totalDebt / financialData.equity;
-    const roa               = financialData.totalAssets > 0
-      ? (financialData.revenue - financialData.expenses) / financialData.totalAssets * 100
-      : 0;
-    const hasDebt           = financialData.totalDebt > 0;
-    const dscr              = hasDebt ? financialData.cashFlow / financialData.totalDebt : null;
-
-    // Knockout rules — any match forces REJECTED regardless of weighted score
-    const knockouts = [];
-    if (hasNegativeEquity) knockouts.push('Negative or zero equity — company is technically insolvent');
-    if (currentRatio < 0.5) knockouts.push('Critical liquidity failure — current ratio below 0.5');
-    if (financialData.cashFlow < 0 && financialData.totalDebt > 0) knockouts.push('Negative cash flow with outstanding debt — unable to service obligations');
-    if (hasDebt && dscr < bench.minDSCR) knockouts.push(`DSCR of ${dscr.toFixed(2)} — below ${selectedIndustry} minimum of ${bench.minDSCR}x`);
-
-    // Scores a single ratio 0-100 against the industry benchmark
-    const scoreMetric = (value, threshold, type) => {
-      if (type === 'min') {
-        if (value >= threshold * 1.5) return 100;
-        if (value >= threshold)       return 80;
-        if (value >= threshold * 0.7) return 60;
-        if (value >= threshold * 0.4) return 30;
-        return 0;
-      } else {
-        if (value <= threshold * 0.5) return 100;
-        if (value <= threshold)       return 80;
-        if (value <= threshold * 1.3) return 60;
-        if (value <= threshold * 2.0) return 30;
-        return 0;
-      }
-    };
-
-    const scores = {
-      currentRatio: scoreMetric(currentRatio, bench.minCurrentRatio, 'min'),
-      debtToEquity: hasNegativeEquity ? 0 : scoreMetric(debtToEquity, bench.maxDebtEquity, 'max'),
-      profitMargin: scoreMetric(profitMargin, bench.minMargin,        'min'),
-      roa:          scoreMetric(roa,          bench.minROA,           'min'),
-      dscr:         !hasDebt ? 100 : dscr < 0 ? 0 : scoreMetric(dscr, bench.minDSCR, 'min')
-    };
-
-    const totalWeight = thresholds.currentRatio.weight + thresholds.debtToEquity.weight +
-                        thresholds.profitMargin.weight + thresholds.roa.weight + thresholds.dscr.weight;
-    const weightedScore = (
-      scores.currentRatio * thresholds.currentRatio.weight +
-      scores.debtToEquity * thresholds.debtToEquity.weight +
-      scores.profitMargin * thresholds.profitMargin.weight +
-      scores.roa          * thresholds.roa.weight +
-      scores.dscr         * thresholds.dscr.weight
-    ) / totalWeight;
-
-    // Knockouts cap the score at 30 and force REJECTED
-    const overallScore = knockouts.length > 0 ? Math.min(weightedScore, 30) : weightedScore;
-    const decision = knockouts.length > 0 ? 'REJECTED' : overallScore >= 70 ? 'APPROVED' : overallScore >= 50 ? 'REVIEW' : 'REJECTED';
-
-    // Portfolio: save snapshot — update existing entry if same company, otherwise append
     const portfolioEntry = {
       id: Date.now(),
-      companyName:  financialData.companyName,
-      assessedAt:   new Date().toLocaleDateString('en-SA'),
-      overallScore: overallScore.toFixed(1),
+      companyName: financialData.companyName,
+      assessedAt: new Date().toLocaleDateString('en-SA'),
+      overallScore,
       decision,
       industry: selectedIndustry,
       ratios: {
-        currentRatio: currentRatio.toFixed(2),
-        debtToEquity: hasNegativeEquity ? 'N/A' : debtToEquity.toFixed(2),
-        profitMargin: profitMargin.toFixed(2),
-        roa:          roa.toFixed(2),
-        dscr:         !hasDebt ? 'N/A' : dscr.toFixed(2)
+        currentRatio: ratios.currentRatio,
+        debtToEquity: ratios.debtToEquity.includes('N/A') ? 'N/A' : ratios.debtToEquity,
+        ebitdaMargin: ratios.ebitdaMargin,
+        roa: ratios.roa,
+        dscr: ratios.dscr.includes('N/A') || ratios.dscr === 'Unavailable' ? 'N/A' : ratios.dscr,
+        quickRatio: ratios.quickRatio !== null ? ratios.quickRatio : 'N/A',
+        icr: ratios.icr !== null ? ratios.icr : 'N/A'
       },
-      revenue:   financialData.revenue,
-      knockouts: knockouts.length
+      revenue: financialData.revenue,
+      knockouts: knockouts.length,
+      activeRatioCount: activeRatios.length,
+      totalPossibleRatios: 7,
+      assessmentSnapshot: { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses },
+      financialSnapshot: JSON.parse(JSON.stringify(financialData)),
     };
+    setPortfolioViewMeta(null);
     setPortfolio(prev => {
       const exists = prev.findIndex(p => p.companyName === financialData.companyName);
       if (exists >= 0) { const updated = [...prev]; updated[exists] = portfolioEntry; return updated; }
       return [...prev, portfolioEntry];
     });
 
-    setAssessmentResults({
-      ratios: {
-        currentRatio: currentRatio.toFixed(2),
-        debtToEquity: hasNegativeEquity ? 'N/A (Negative Equity)' : debtToEquity.toFixed(2),
-        profitMargin: profitMargin.toFixed(2),
-        roa:          roa.toFixed(2),
-        dscr:         !hasDebt ? 'N/A (No Debt)' : dscr.toFixed(2)
-      },
-      scores, overallScore: overallScore.toFixed(1), decision, knockouts,
-      strengths: [
-        ...(scores.currentRatio >= 80 ? ['Strong liquidity position'] : []),
-        ...(!hasNegativeEquity && scores.debtToEquity >= 80 ? ['Low debt relative to equity'] : []),
-        ...(scores.profitMargin >= 80 ? ['Healthy profit margins'] : []),
-        ...(scores.roa >= 80 ? ['Strong return on assets'] : []),
-        ...(!hasDebt || scores.dscr >= 80 ? ['Strong debt service capacity'] : []),
-      ],
-      weaknesses: [
-        ...(scores.currentRatio < 60 ? ['Weak liquidity — current assets may not cover short-term obligations'] : []),
-        ...(hasNegativeEquity ? ['Negative equity — liabilities exceed assets'] : scores.debtToEquity < 60 ? ['High debt levels relative to equity'] : []),
-        ...(scores.profitMargin < 60 ? ['Low or negative profit margin'] : []),
-        ...(scores.roa < 60 ? ['Poor return on assets — inefficient use of asset base'] : []),
-        ...(hasDebt && scores.dscr < 60 ? ['Insufficient cash flow to comfortably service debt'] : []),
-      ],
-    });
+    setAssessmentResults({ ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses });
     setCurrentPage('assessment');
   };
 
@@ -557,7 +586,7 @@ export default function FinSightApp() {
     const rows = demoDatasets[profileKey];
     if (!profile || !rows) return;
 
-    setFinancialData(processDemoDataset(rows, `${profile.title} (Demo)`));
+    setFinancialData(processDemoDataset(rows, `${profile.title} (Demo)`, profileKey));
     setUploadedFile({ name: `Demo Data — ${profile.title}` });
     setRawFileData({ columns: DEMO_COLUMNS, sampleRow: rows[0], allRows: rows });
     setDetectedColumns(DEMO_COLUMNS);
@@ -565,6 +594,7 @@ export default function FinSightApp() {
       companyName: '', revenue: 'Revenue', expenses: 'Expenses',
       currentAssets: 'Current_Assets', currentLiabilities: 'Current_Liabilities',
       totalAssets: 'Total_Assets', totalDebt: 'Total_Debt', equity: 'Equity', cashFlow: 'Cashflow',
+      inventory: '', interestExpense: '', debtService: '',
     });
     setShowDemoModal(false);
     setShowFieldMapping(false);
@@ -598,6 +628,9 @@ export default function FinSightApp() {
       totalDebt:          parseFloat(manualData.totalDebt) || 0,
       equity:             parseFloat(manualData.equity)    || 0,
       cashFlow:           parseFloat(manualData.cashFlow)  || 0,
+      inventory:          manualData.inventory != null && manualData.inventory !== '' ? parseFloat(manualData.inventory) : null,
+      interestExpense:    manualData.interestExpense != null && manualData.interestExpense !== '' ? parseFloat(manualData.interestExpense) : null,
+      debtService:        manualData.debtService != null && manualData.debtService !== '' ? parseFloat(manualData.debtService) : null,
       monthlyRevenue,
       assetBreakdown: [
         { name: 'Current Assets',    value: currentAssets },
@@ -611,18 +644,54 @@ export default function FinSightApp() {
   // Resets all scoring weights to defaults
   const resetThresholds = () => {
     setThresholds({
-      currentRatio: { min: 1.5,  weight: 25, label: 'Current Ratio (Min)' },
-      debtToEquity: { max: 2.0,  weight: 25, label: 'Debt-to-Equity (Max)' },
-      profitMargin: { min: 10,   weight: 20, label: 'Profit Margin % (Min)' },
-      roa:          { min: 5,    weight: 15, label: 'Return on Assets % (Min)' },
-      dscr:         { min: 1.25, weight: 15, label: 'DSCR (Min)' }
+      currentRatio: { min: 1.2,  weight: 20, label: 'Current Ratio (Min)' },
+      debtToEquity: { max: 1.5,  weight: 20, label: 'Debt-to-Equity (Max)' },
+      ebitdaMargin: { min: 10,   weight: 15, label: 'EBITDA Margin % (Min)' },
+      roa:          { min: 5,    weight: 10, label: 'ROA — EBIT-based % (Min)' },
+      dscr:         { min: 1.25, weight: 15, label: 'DSCR (Min)' },
+      quickRatio:   { min: 0.8,  weight: 10, label: 'Quick Ratio (Min)' },
+      icr:          { min: 2.0,  weight: 10, label: 'Interest Coverage (Min)' }
     });
   };
 
   // Returns sum of all weights — must equal 100 for valid scoring
   const getTotalWeight = () => {
     return thresholds.currentRatio.weight + thresholds.debtToEquity.weight +
-           thresholds.profitMargin.weight + thresholds.roa.weight + thresholds.dscr.weight;
+           thresholds.ebitdaMargin.weight + thresholds.roa.weight + thresholds.dscr.weight +
+           thresholds.quickRatio.weight + thresholds.icr.weight;
+  };
+
+  const getRatioBenchmark = (key) => {
+    const bench = industryStandards[selectedIndustry];
+    if (key === 'currentRatio') return `Min: ${bench.minCurrentRatio}x`;
+    if (key === 'debtToEquity') return `Max: ${bench.maxDebtEquity}x`;
+    if (key === 'ebitdaMargin') return `Min: ${bench.minEBITDAMargin}%`;
+    if (key === 'roa') return `Min: ${bench.minROA}%`;
+    if (key === 'dscr') return `Min: ${bench.minDSCR}x`;
+    if (key === 'quickRatio') return `Min: ${bench.minQuickRatio}x`;
+    if (key === 'icr') return `Min: ${bench.minICR}x`;
+    return '';
+  };
+
+  const formatRatioDisplay = (key, value) => {
+    if (value === null || value === undefined) return 'N/A';
+    if (key === 'ebitdaMargin' || key === 'roa') return `${value}%`;
+    return value;
+  };
+
+  // Portfolio: restore a saved assessment and open the full report view
+  const openPortfolioEntry = (entry) => {
+    if (!entry.assessmentSnapshot || !entry.financialSnapshot) {
+      alert('Full report details are not available for this entry. Run a new assessment to save the complete report.');
+      return;
+    }
+    setFinancialData(JSON.parse(JSON.stringify(entry.financialSnapshot)));
+    setAssessmentResults(JSON.parse(JSON.stringify(entry.assessmentSnapshot)));
+    setSelectedIndustry(entry.industry || 'Default');
+    setIsScenarioMode(false);
+    setScenarioData(null);
+    setPortfolioViewMeta({ assessedAt: entry.assessedAt, companyName: entry.companyName });
+    setCurrentPage('assessment');
   };
 
   // UI: Upload Page
@@ -741,6 +810,23 @@ export default function FinSightApp() {
                       <input type="number" value={manualData[field]} onChange={(e) => handleManualDataChange(field, e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none placeholder-slate-400" placeholder={placeholder} />
                     </div>
                   ))}
+                  <div className="col-span-2 border-t border-slate-200 pt-4 mt-2">
+                    <p className="text-xs text-slate-400 mb-3">
+                      Optional — enables additional ratio analysis. Leave blank if unavailable.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Inventory (SAR)</label>
+                    <input type="number" value={manualData.inventory ?? ''} onChange={(e) => handleManualDataChange('inventory', e.target.value === '' ? null : parseFloat(e.target.value))} className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none placeholder-slate-400" placeholder="e.g. 150000" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Annual Interest/Profit-Charge Expense (SAR)</label>
+                    <input type="number" value={manualData.interestExpense ?? ''} onChange={(e) => handleManualDataChange('interestExpense', e.target.value === '' ? null : parseFloat(e.target.value))} className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none placeholder-slate-400" placeholder="e.g. 50000" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Annual Debt Service (SAR)</label>
+                    <input type="number" value={manualData.debtService ?? ''} onChange={(e) => handleManualDataChange('debtService', e.target.value === '' ? null : parseFloat(e.target.value))} className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none placeholder-slate-400" placeholder="Principal + Interest payments per year" />
+                  </div>
                 </div>
                 <div className="flex gap-3">
                   <button onClick={submitManualData} className="flex-1 bg-slate-900 hover:bg-slate-800 text-white py-3 rounded-lg text-sm font-semibold transition-colors">Submit Data</button>
@@ -772,9 +858,12 @@ export default function FinSightApp() {
                     { field: 'totalDebt',          label: 'Total Debt',          required: false },
                     { field: 'equity',             label: 'Equity',              required: false },
                     { field: 'cashFlow',           label: 'Cash Flow',           required: false },
-                  ].map(({ field, label, required }) => (
+                    { field: 'inventory',          label: 'Inventory (Optional)',          required: false, optional: true },
+                    { field: 'interestExpense',    label: 'Interest Expense (Optional)',   required: false, optional: true },
+                    { field: 'debtService',        label: 'Debt Service (Optional)',       required: false, optional: true },
+                  ].map(({ field, label, required, optional }) => (
                     <div key={field}>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{label} {required && <span className="text-rose-500">*</span>}</label>
+                      <label className={`block text-xs font-semibold uppercase tracking-wide mb-2 ${optional ? 'text-slate-400' : 'text-slate-500'}`}>{label} {required && <span className="text-rose-500">*</span>}</label>
                       <select value={fieldMappings[field]} onChange={(e) => handleFieldMappingChange(field, e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none">
                         <option value="">-- Not Mapped --</option>
                         {detectedColumns.map(col => (<option key={col} value={col}>{col}</option>))}
@@ -1019,21 +1108,14 @@ export default function FinSightApp() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
 
-              {/* UC3: Risk Radar — normalises all 5 ratios to 0-100 for visual health footprint */}
+              {/* UC3: Risk Radar — dynamic points from active assessment ratios (0–100 scores) */}
               {(() => {
-                const cr   = financialData.currentAssets / financialData.currentLiabilities;
-                const de   = financialData.equity > 0 ? financialData.totalDebt / financialData.equity : 999;
-                const pm   = ((financialData.revenue - financialData.expenses) / financialData.revenue) * 100;
-                const roa  = ((financialData.revenue - financialData.expenses) / financialData.totalAssets) * 100;
-                const dscr = financialData.totalDebt > 0 ? financialData.cashFlow / financialData.totalDebt : 2.5;
-                const clamp = (v, min, max) => Math.min(100, Math.max(0, ((v - min) / (max - min)) * 100));
-                const radarData = [
-                  { metric: 'Current Ratio', score: clamp(cr,     0,   3),  fullMark: 100 },
-                  { metric: 'Debt / Equity', score: clamp(4 - de, 0,   4),  fullMark: 100 }, // inverted: lower D/E = higher score
-                  { metric: 'Profit Margin', score: clamp(pm,   -50,  40),  fullMark: 100 },
-                  { metric: 'ROA %',         score: clamp(roa,  -30,  20),  fullMark: 100 },
-                  { metric: 'DSCR',          score: clamp(dscr,   0, 2.5),  fullMark: 100 },
-                ];
+                const dashAssessment = computeAssessment(financialData);
+                const radarData = dashAssessment.activeRatios.map(r => ({
+                  metric: r.label,
+                  score: dashAssessment.scores[r.key] || 0,
+                  fullMark: 100
+                }));
                 return (
                   <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
                     <h3 className="text-sm font-bold text-slate-700 mb-1 flex items-center gap-2"><BarChart3 className="h-4 w-4 text-slate-500" />Risk Radar — Health Footprint</h3>
@@ -1107,11 +1189,13 @@ export default function FinSightApp() {
                 </select>
               </div>
               <div className="text-xs text-slate-500 space-y-0.5 border-l border-slate-200 pl-4">
-                <p>Min Margin: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minMargin}%</span></p>
+                <p>Min EBITDA Margin: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minEBITDAMargin}%</span></p>
                 <p>Min DSCR: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minDSCR}x</span></p>
                 <p>Min Current Ratio: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minCurrentRatio}x</span></p>
                 <p>Max D/E: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].maxDebtEquity}x</span></p>
                 <p>Min ROA: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minROA}%</span></p>
+                <p>Min Quick Ratio: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minQuickRatio}x</span></p>
+                <p>Min ICR: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minICR}x</span></p>
               </div>
             </div>
             <button onClick={calculateAssessment} className="flex items-center gap-2 px-8 py-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-semibold text-sm shadow-md transition-colors">
@@ -1146,12 +1230,7 @@ export default function FinSightApp() {
                 if (isScenarioMode) { setIsScenarioMode(false); setScenarioData(null); }
                 else {
                   setIsScenarioMode(true);
-                  setScenarioData({
-                    revenue: financialData.revenue, expenses: financialData.expenses,
-                    currentAssets: financialData.currentAssets, currentLiabilities: financialData.currentLiabilities,
-                    totalAssets: financialData.totalAssets, totalDebt: financialData.totalDebt,
-                    equity: financialData.equity, cashFlow: financialData.cashFlow,
-                  });
+                  setScenarioData(JSON.parse(JSON.stringify(financialData)));
                 }
               }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isScenarioMode ? 'bg-amber-500 hover:bg-amber-400 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'}`}
@@ -1169,6 +1248,21 @@ export default function FinSightApp() {
 
         <main className="w-full px-8 py-6 space-y-6">
 
+          {portfolioViewMeta && (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <FileText className="h-5 w-5 text-indigo-600 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-bold text-indigo-900">Saved assessment — {portfolioViewMeta.companyName}</p>
+                  <p className="text-xs text-indigo-600">Assessed on {portfolioViewMeta.assessedAt}. This is a historical snapshot, not a live re-run.</p>
+                </div>
+              </div>
+              <button onClick={() => setPortfolioViewMeta(null)} className="text-xs font-semibold text-indigo-700 hover:text-indigo-900 px-3 py-1.5 hover:bg-indigo-100 rounded-lg transition-colors">
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {/* UC5 (Configure): weight adjustment panel — only affects scoring weights, not industry benchmarks */}
           {showSettings && (
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
@@ -1176,13 +1270,15 @@ export default function FinSightApp() {
                 <h2 className="text-base font-bold text-slate-900">Assessment Criteria Configuration</h2>
                 <button onClick={resetThresholds} className="text-xs text-slate-500 hover:text-slate-800 font-semibold px-3 py-1.5 hover:bg-slate-100 rounded-lg transition-colors">Reset to Defaults</button>
               </div>
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 {[
                   { key: 'currentRatio', field: 'min',  step: '0.1'  },
                   { key: 'debtToEquity', field: 'max',  step: '0.1'  },
-                  { key: 'profitMargin', field: 'min',  step: '0.5'  },
+                  { key: 'ebitdaMargin', field: 'min',  step: '0.5'  },
                   { key: 'roa',          field: 'min',  step: '0.5'  },
                   { key: 'dscr',         field: 'min',  step: '0.05' },
+                  { key: 'quickRatio',   field: 'min',  step: '0.1'  },
+                  { key: 'icr',          field: 'min',  step: '0.1'  },
                 ].map(({ key, field, step }) => (
                   <div key={key} className="bg-slate-50 border border-slate-200 rounded-lg p-4">
                     <p className="text-xs font-bold text-slate-700 mb-3">{thresholds[key].label}</p>
@@ -1218,12 +1314,7 @@ export default function FinSightApp() {
                 </div>
               </div>
               <button
-                onClick={() => setScenarioData({
-                  revenue: financialData.revenue, expenses: financialData.expenses,
-                  currentAssets: financialData.currentAssets, currentLiabilities: financialData.currentLiabilities,
-                  totalAssets: financialData.totalAssets, totalDebt: financialData.totalDebt,
-                  equity: financialData.equity, cashFlow: financialData.cashFlow,
-                })}
+                onClick={() => setScenarioData(JSON.parse(JSON.stringify(financialData)))}
                 className="flex items-center gap-2 px-4 py-2 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg text-xs font-bold transition-colors"
               >
                 Reset to Original
@@ -1246,6 +1337,15 @@ export default function FinSightApp() {
                   { key: 'currentAssets',      label: 'Current Assets',      min: 0, max: financialData.currentAssets * 4 || financialData.totalAssets },
                   { key: 'currentLiabilities', label: 'Current Liabilities', min: 0, max: financialData.currentLiabilities * 4 || financialData.totalAssets },
                   { key: 'equity',             label: 'Equity',              min: financialData.totalAssets * -0.5, max: financialData.totalAssets * 2 },
+                  ...(financialData.inventory != null
+                    ? [{ key: 'inventory', label: 'Inventory', min: 0, max: (financialData.inventory || 0) * 4 || financialData.currentAssets }]
+                    : []),
+                  ...(financialData.interestExpense != null
+                    ? [{ key: 'interestExpense', label: 'Interest Expense', min: 0, max: (financialData.interestExpense || 0) * 4 || financialData.revenue * 0.2 }]
+                    : []),
+                  ...(financialData.debtService != null
+                    ? [{ key: 'debtService', label: 'Annual Debt Service', min: 0, max: (financialData.debtService || 0) * 4 || financialData.totalDebt }]
+                    : []),
                 ].map(({ key, label, min, max }) => (
                   <div key={key}>
                     <div className="flex items-center justify-between mb-2">
@@ -1254,7 +1354,7 @@ export default function FinSightApp() {
                         {scenarioData[key] >= 1000000 ? `${(scenarioData[key] / 1000000).toFixed(2)}M` : `${(scenarioData[key] / 1000).toFixed(0)}K`} SAR
                       </span>
                     </div>
-                    <input type="range" min={min} max={max} step={(max - min) / 200} value={scenarioData[key]}
+                    <input type="range" min={min} max={max} step={(max - min) / 200} value={scenarioData[key] ?? 0}
                       onChange={(e) => {
                         const updated = { ...scenarioData, [key]: parseFloat(e.target.value) };
                         updated.cashFlow = updated.revenue - updated.expenses; // cash flow mirrors revenue - expenses
@@ -1262,7 +1362,7 @@ export default function FinSightApp() {
                       }}
                       className="w-full accent-amber-500"
                     />
-                    <input type="number" value={Math.round(scenarioData[key])}
+                    <input type="number" value={Math.round(scenarioData[key] ?? 0)}
                       onChange={(e) => {
                         const updated = { ...scenarioData, [key]: parseFloat(e.target.value) || 0 };
                         updated.cashFlow = updated.revenue - updated.expenses;
@@ -1330,29 +1430,45 @@ export default function FinSightApp() {
                   <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl shadow-sm p-6">
                     <h3 className="text-sm font-bold text-slate-700 mb-4">Financial Ratios Breakdown</h3>
                     <div className="space-y-3">
-                      {/* Each row shows the ratio value, its 0-100 score, weight, and industry benchmark */}
-                      {[
-                        { label: 'Current Ratio',                value: activeResults.ratios.currentRatio,       score: activeResults.scores.currentRatio,  weight: thresholds.currentRatio.weight, benchmark: `Min: ${industryStandards[selectedIndustry].minCurrentRatio}x` },
-                        { label: 'Debt to Equity',               value: activeResults.ratios.debtToEquity,       score: activeResults.scores.debtToEquity,  weight: thresholds.debtToEquity.weight, benchmark: `Max: ${industryStandards[selectedIndustry].maxDebtEquity}x` },
-                        { label: 'Profit Margin',                value: `${activeResults.ratios.profitMargin}%`, score: activeResults.scores.profitMargin,  weight: thresholds.profitMargin.weight, benchmark: `Min: ${industryStandards[selectedIndustry].minMargin}%` },
-                        { label: 'Return on Assets (ROA)',       value: `${activeResults.ratios.roa}%`,          score: activeResults.scores.roa,           weight: thresholds.roa.weight,          benchmark: `Min: ${industryStandards[selectedIndustry].minROA}%` },
-                        { label: 'Debt Service Coverage (DSCR)', value: activeResults.ratios.dscr,               score: activeResults.scores.dscr,           weight: thresholds.dscr.weight,         benchmark: `Min: ${industryStandards[selectedIndustry].minDSCR}x` },
-                      ].map(({ label, value, score, weight, benchmark }) => (
-                        <div key={label} className={`flex items-center justify-between px-4 py-3 rounded-lg border ${score >= 80 ? 'bg-emerald-50 border-emerald-100' : score >= 60 ? 'bg-amber-50 border-amber-100' : 'bg-rose-50 border-rose-100'}`}>
-                          <div className="flex items-center gap-3">
-                            <div className={`w-1.5 h-8 rounded-full ${score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-rose-500'}`} />
-                            <div>
-                              <p className="text-sm font-semibold text-slate-800">{label}</p>
-                              <p className="text-xs text-slate-400">Weight: {weight}% · {benchmark} <span className="text-indigo-500 font-semibold">({selectedIndustry})</span></p>
+                      {/* Each row shows the ratio value, its 0-100 score, weight, and industry benchmark — dynamic active ratios */}
+                      {activeResults.activeRatios.map((r) => {
+                        const score = activeResults.scores[r.key];
+                        const value = formatRatioDisplay(r.key, activeResults.ratios[r.key]);
+                        const weight = thresholds[r.key]?.weight ?? r.weight;
+                        const benchmark = getRatioBenchmark(r.key);
+                        return (
+                          <div key={r.key} className={`flex items-center justify-between px-4 py-3 rounded-lg border ${score >= 80 ? 'bg-emerald-50 border-emerald-100' : score >= 60 ? 'bg-amber-50 border-amber-100' : 'bg-rose-50 border-rose-100'}`}>
+                            <div className="flex items-center gap-3">
+                              <div className={`w-1.5 h-8 rounded-full ${score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-rose-500'}`} />
+                              <div>
+                                <p className="text-sm font-semibold text-slate-800">{r.label}</p>
+                                <p className="text-xs text-slate-400">Weight: {weight}% · {benchmark} <span className="text-indigo-500 font-semibold">({selectedIndustry})</span></p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-base font-bold text-slate-900">{value}</p>
+                              <p className={`text-xs font-bold ${score >= 80 ? 'text-emerald-600' : score >= 60 ? 'text-amber-600' : 'text-rose-600'}`}>{score} / 100</p>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <p className="text-base font-bold text-slate-900">{value}</p>
-                            <p className={`text-xs font-bold ${score >= 80 ? 'text-emerald-600' : score >= 60 ? 'text-amber-600' : 'text-rose-600'}`}>{score} / 100</p>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
+                    {activeResults.droppedRatios && activeResults.droppedRatios.length > 0 && (
+                      <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <AlertTriangle className="w-4 h-4 text-amber-500" />
+                          <h4 className="text-sm font-semibold text-amber-700">Ratios excluded from this assessment</h4>
+                        </div>
+                        <ul className="text-xs text-amber-600 space-y-1">
+                          {activeResults.droppedRatios.map((msg, i) => (
+                            <li key={i}>• {msg}</li>
+                          ))}
+                        </ul>
+                        <p className="text-xs text-amber-500 mt-2">
+                          Weights were redistributed across {activeResults.activeRatios.length} available ratios.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1413,16 +1529,33 @@ export default function FinSightApp() {
   // UI: Portfolio Page — assessment history table with summary KPI cards
   if (currentPage === 'portfolio') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-100 to-white p-8">
-        <div className="max-w-7xl mx-auto">
+      <div className="min-h-screen bg-slate-50">
+        <header className="bg-slate-900 px-8 py-4 flex items-center justify-between sticky top-0 z-10 shadow-md">
+          <div className="flex items-center gap-3">
+            <img src="/logo.png" alt="FinSight" className="h-20 w-auto" />
+            <span className="ml-4 text-slate-400 text-sm font-medium border-l border-slate-700 pl-4">SME Portfolio</span>
+          </div>
+          <div className="flex items-center gap-3">
+            {financialData && (
+              <button onClick={() => setCurrentPage('dashboard')} className="flex items-center gap-2 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-sm font-medium transition-colors">
+                <ArrowLeft className="h-4 w-4" />Dashboard
+              </button>
+            )}
+            <button onClick={() => { setCurrentPage('upload'); setFinancialData(null); setUploadedFile(null); setAssessmentResults(null); setForecastData(null); setPortfolioViewMeta(null); }} className="flex items-center gap-2 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-sm font-medium transition-colors">
+              <Upload className="h-4 w-4" />New Assessment
+            </button>
+            <button onClick={() => { localStorage.removeItem('finsight_auth'); window.location.href = '/'; }} className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-semibold transition-colors">
+              Log Out
+            </button>
+          </div>
+        </header>
+
+        <main className="w-full px-8 py-8 max-w-7xl mx-auto">
           <div className="flex items-center justify-between mb-8">
             <div>
-              <h1 className="text-4xl font-bold text-slate-900">SME Portfolio</h1>
-              <p className="text-slate-600 mt-1">{portfolio.length} companies assessed</p>
+              <h1 className="text-2xl font-bold text-slate-900">Assessment History</h1>
+              <p className="text-sm text-slate-500 mt-1">{portfolio.length} companies assessed — click a row to open the full report</p>
             </div>
-            <button onClick={() => { setCurrentPage('upload'); setFinancialData(null); setUploadedFile(null); setAssessmentResults(null); setForecastData(null); }} className="flex items-center gap-2 px-5 py-3 bg-slate-900 text-white rounded-xl hover:bg-slate-800">
-              <Upload className="h-5 w-5" />New Assessment
-            </button>
           </div>
 
           {portfolio.length === 0 ? (
@@ -1463,17 +1596,23 @@ export default function FinSightApp() {
                         <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Revenue</th>
                         <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Score</th>
                         <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Current Ratio</th>
-                        <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Profit Margin</th>
+                        <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">EBITDA Margin</th>
                         <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">DSCR</th>
                         <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Decision</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {portfolio.map((entry) => (
-                        <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
+                        <tr
+                          key={entry.id}
+                          onClick={() => openPortfolioEntry(entry)}
+                          className={`transition-colors ${entry.assessmentSnapshot ? 'hover:bg-indigo-50 cursor-pointer' : 'hover:bg-slate-50 cursor-not-allowed opacity-70'}`}
+                          title={entry.assessmentSnapshot ? 'Click to view full assessment report' : 'Full report not saved for this entry'}
+                        >
                           <td className="px-6 py-4">
                             <div className="font-semibold text-slate-900">{entry.companyName}</div>
                             {entry.knockouts > 0 && <div className="text-xs text-red-600 font-medium mt-0.5">{entry.knockouts} disqualifier{entry.knockouts > 1 ? 's' : ''}</div>}
+                            {entry.assessmentSnapshot && <div className="text-xs text-indigo-600 font-medium mt-0.5">View full report →</div>}
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-600">{entry.assessedAt}</td>
                           <td className="px-6 py-4 text-sm font-medium text-slate-900">{(entry.revenue / 1000000).toFixed(1)}M SAR</td>
@@ -1483,7 +1622,7 @@ export default function FinSightApp() {
                             </span>
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-700">{entry.ratios.currentRatio}</td>
-                          <td className="px-6 py-4 text-sm text-slate-700">{entry.ratios.profitMargin}%</td>
+                          <td className="px-6 py-4 text-sm text-slate-700">{(entry.ratios.ebitdaMargin ?? entry.ratios.profitMargin) + '%'}</td>
                           <td className="px-6 py-4 text-sm text-slate-700">{entry.ratios.dscr}</td>
                           <td className="px-6 py-4">
                             <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${entry.decision === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' : entry.decision === 'REVIEW' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
@@ -1501,7 +1640,7 @@ export default function FinSightApp() {
               </div>
             </>
           )}
-        </div>
+        </main>
       </div>
     );
   }
