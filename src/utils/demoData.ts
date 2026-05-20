@@ -98,10 +98,27 @@ export function processDemoDataset(rows, companyName, profileKey) {
   let sumRevenue = 0, sumExpenses = 0, sumCashFlow = 0;
   const monthlyRevenue = [];
 
+  const historicalMonths = [];
+
   rows.forEach((row) => {
     sumRevenue  += row.Revenue;
     sumExpenses += row.Expenses;
     sumCashFlow += row.Cashflow;
+
+    historicalMonths.push({
+      month: row.month,
+      revenue: row.Revenue,
+      expenses: row.Expenses,
+      cashFlow: row.Cashflow,
+      currentAssets: row.Current_Assets,
+      currentLiabilities: row.Current_Liabilities,
+      totalAssets: row.Total_Assets,
+      totalDebt: row.Total_Debt,
+      equity: row.Equity,
+      inventory: null,
+      interestExpense: null,
+      debtService: null,
+    });
 
     monthlyRevenue.push({
       month: row.month,
@@ -134,6 +151,7 @@ export function processDemoDataset(rows, companyName, profileKey) {
     inventory:          optional?.inventory ?? null,
     interestExpense:    optional?.interestExpense ?? null,
     debtService:        optional?.debtService ?? null,
+    historicalMonths,
     monthlyRevenue,
     assetBreakdown: [
       { name: 'Current Assets',    value: Math.round(currentAssets) },

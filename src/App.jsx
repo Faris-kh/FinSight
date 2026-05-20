@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, FileText, CheckCircle, AlertTriangle, XCircle, Calculator, TrendingUp, Settings, Save, BarChart3, ArrowRight, ArrowLeft, Building2, DollarSign, Circle, Brain, Zap, X } from 'lucide-react';
 import { demoDatasets, demoProfiles, DEMO_COLUMNS, processDemoDataset } from './utils/demoData';
+import {
+  parseMappedNumeric,
+  buildHistoricalMonthFromRow,
+  buildForecastRequestBody,
+} from './utils/forecastPayload';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, ComposedChart, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ReferenceLine } from 'recharts';
 
 // UC5: Industry benchmark thresholds — drives all scoring and knockout logic (7-ratio system)
@@ -183,8 +188,11 @@ export default function FinSightApp() {
       return;
     }
 
-    let sumRevenue = 0, sumExpenses = 0, sumCashFlow = 0;
+    let sumRevenue = null, sumExpenses = null, sumCashFlow = null;
     const monthlyRevenue = [];
+    const historicalMonths = [];
+
+    const addToSum = (sum, val) => (val != null ? (sum ?? 0) + val : sum);
 
     // Find date/month column for chart X-axis labels
     const monthColName = rawFileData.columns.find(col =>
@@ -194,48 +202,51 @@ export default function FinSightApp() {
     rows.forEach((row, idx) => {
       const getMappedNum = (field) => {
         const mappedColumn = fieldMappings[field];
-        if (!mappedColumn || row[mappedColumn] === undefined) return 0;
-        const val = row[mappedColumn];
-        return isNaN(parseFloat(val)) ? 0 : parseFloat(val);
+        if (!mappedColumn || row[mappedColumn] === undefined || row[mappedColumn] === '') return null;
+        return parseMappedNumeric(row[mappedColumn]);
       };
 
       const rowRev = getMappedNum('revenue');
       const rowExp = getMappedNum('expenses');
-      let rowCF = getMappedNum('cashFlow');
+      const rowCFMapped = getMappedNum('cashFlow');
 
-      sumRevenue   += rowRev;
-      sumExpenses  += rowExp;
-      sumCashFlow  += rowCF;
+      sumRevenue   = addToSum(sumRevenue, rowRev);
+      sumExpenses  = addToSum(sumExpenses, rowExp);
+      sumCashFlow  = addToSum(sumCashFlow, rowCFMapped);
 
       const monthLabel = monthColName && row[monthColName] ? row[monthColName] : `Month ${idx + 1}`;
 
-      // Estimate missing row-level cashflow for chart only
-      if (!rowCF && rowRev > 0) {
-        rowCF = (rowRev - (rowExp || (rowRev * 0.75))) * 0.8;
+      historicalMonths.push(buildHistoricalMonthFromRow(row, fieldMappings, monthLabel));
+
+      // Chart-only estimates — do not overwrite nulls sent to the ML payload
+      let rowCFChart = rowCFMapped;
+      if (rowCFChart == null && rowRev != null && rowRev > 0) {
+        rowCFChart = (rowRev - (rowExp ?? rowRev * 0.75)) * 0.8;
       }
+      const chartExp = rowExp ?? (rowRev != null ? rowRev * 0.75 : null);
 
       monthlyRevenue.push({
         month: monthLabel,
-        revenue: rowRev,
-        expenses: rowExp || (rowRev * 0.75),
-        profit: rowRev - (rowExp || (rowRev * 0.75)),
-        cashFlow: rowCF
+        revenue: rowRev ?? 0,
+        expenses: chartExp ?? 0,
+        profit: (rowRev ?? 0) - (chartExp ?? 0),
+        cashFlow: rowCFChart ?? 0,
       });
     });
 
-    // Scale to 12-month run-rate for ML model input
+    // Scale to 12-month run-rate for ML model input (null if nothing was mapped)
     const annualizationFactor = numRows < 12 ? (12 / numRows) : 1;
-    let annualizedRevenue  = sumRevenue  * annualizationFactor;
-    let annualizedExpenses = sumExpenses * annualizationFactor;
-    let annualizedCashFlow = sumCashFlow * annualizationFactor;
+    const annualizedRevenue  = sumRevenue  != null ? Math.round(sumRevenue  * annualizationFactor) : null;
+    const annualizedExpenses = sumExpenses != null ? Math.round(sumExpenses * annualizationFactor) : null;
+    const annualizedCashFlow = sumCashFlow != null ? Math.round(sumCashFlow * annualizationFactor) : null;
 
-    // Balance sheet: most recent row only
+    // Balance sheet: most recent row only — null when unmapped or blank
     const lastRow = rows[numRows - 1];
     const getLatestMappedNum = (field) => {
       const mappedColumn = fieldMappings[field];
-      if (!mappedColumn || lastRow[mappedColumn] === undefined) return undefined;
-      const val = lastRow[mappedColumn];
-      return isNaN(parseFloat(val)) ? undefined : parseFloat(val);
+      if (!mappedColumn || lastRow[mappedColumn] === undefined || lastRow[mappedColumn] === '') return null;
+      const parsed = parseMappedNumeric(lastRow[mappedColumn]);
+      return parsed != null ? Math.round(parsed) : null;
     };
 
     let currentAssets      = getLatestMappedNum('currentAssets');
@@ -244,20 +255,11 @@ export default function FinSightApp() {
     let totalDebt          = getLatestMappedNum('totalDebt');
     let equity             = getLatestMappedNum('equity');
 
-    // Fallbacks for missing fields
-    annualizedRevenue  = annualizedRevenue  || 5000000;
-    annualizedExpenses = annualizedExpenses || (annualizedRevenue * 0.75);
-    annualizedCashFlow = annualizedCashFlow || ((annualizedRevenue - annualizedExpenses) * 0.8);
-    currentAssets      = currentAssets      || (annualizedRevenue * 0.4);
-    currentLiabilities = currentLiabilities || (currentAssets * 0.5);
-    totalAssets        = totalAssets        || (annualizedRevenue * 1.6);
-
-    // Derive missing equity or debt from the accounting identity: Assets = Debt + Equity
-    if (!equity && totalAssets && totalDebt)       equity    = totalAssets - totalDebt;
-    else if (!totalDebt && totalAssets && equity)  totalDebt = totalAssets - equity;
-    else if (!equity && !totalDebt) { equity = totalAssets * 0.6; totalDebt = totalAssets - equity; }
-    else if (!equity)    equity    = totalAssets * 0.6;
-    else if (!totalDebt) totalDebt = totalAssets - equity;
+    // Derive missing equity or debt only from mapped balance-sheet values (no synthetic defaults)
+    if (equity == null && totalAssets != null && totalDebt != null)
+      equity = Math.round(totalAssets - totalDebt);
+    else if (totalDebt == null && totalAssets != null && equity != null)
+      totalDebt = Math.round(totalAssets - equity);
 
     let companyName = uploadedFile?.name?.replace(/\.[^/.]+$/, '') || 'Unknown Company';
     if (fieldMappings.companyName && lastRow[fieldMappings.companyName]) {
@@ -265,48 +267,49 @@ export default function FinSightApp() {
     }
 
     // Optional fields — null when CSV column not mapped (not the same as 0)
-    let inventoryVal = null;
-    if (fieldMappings.inventory && lastRow[fieldMappings.inventory] !== undefined) {
-      const parsed = parseFloat(lastRow[fieldMappings.inventory]);
-      inventoryVal = isNaN(parsed) ? null : Math.round(parsed);
-    }
+    let inventoryVal = getLatestMappedNum('inventory');
 
     let interestExpenseSum = null;
     if (fieldMappings.interestExpense) {
-      const sum = rows.reduce((acc, row) => {
-        const val = parseFloat(row[fieldMappings.interestExpense]);
-        return acc + (isNaN(val) ? 0 : val);
-      }, 0);
-      interestExpenseSum = Math.round(sum * annualizationFactor);
+      let sum = 0;
+      let hasAny = false;
+      rows.forEach((row) => {
+        const v = parseMappedNumeric(row[fieldMappings.interestExpense]);
+        if (v != null) { sum += v; hasAny = true; }
+      });
+      interestExpenseSum = hasAny ? Math.round(sum * annualizationFactor) : null;
     }
 
     let debtServiceSum = null;
     if (fieldMappings.debtService) {
-      const sum = rows.reduce((acc, row) => {
-        const val = parseFloat(row[fieldMappings.debtService]);
-        return acc + (isNaN(val) ? 0 : val);
-      }, 0);
-      debtServiceSum = Math.round(sum * annualizationFactor);
+      let sum = 0;
+      let hasAny = false;
+      rows.forEach((row) => {
+        const v = parseMappedNumeric(row[fieldMappings.debtService]);
+        if (v != null) { sum += v; hasAny = true; }
+      });
+      debtServiceSum = hasAny ? Math.round(sum * annualizationFactor) : null;
     }
 
     setFinancialData({
       companyName,
-      revenue:            Math.round(annualizedRevenue),
-      expenses:           Math.round(annualizedExpenses),
-      currentAssets:      Math.round(currentAssets),
-      currentLiabilities: Math.round(currentLiabilities),
-      totalAssets:        Math.round(totalAssets),
-      totalDebt:          Math.round(totalDebt),
-      equity:             Math.round(equity),
-      cashFlow:           Math.round(annualizedCashFlow),
+      revenue:            annualizedRevenue,
+      expenses:           annualizedExpenses,
+      currentAssets,
+      currentLiabilities,
+      totalAssets,
+      totalDebt,
+      equity,
+      cashFlow:           annualizedCashFlow,
       inventory:          inventoryVal,
       interestExpense:    interestExpenseSum,
       debtService:        debtServiceSum,
+      historicalMonths,
       monthlyRevenue,
       assetBreakdown: [
-        { name: 'Current Assets',   value: Math.round(currentAssets) },
-        { name: 'Fixed Assets',     value: Math.round(totalAssets * 0.55) },
-        { name: 'Intangible Assets',value: Math.max(0, Math.round(totalAssets - currentAssets - (totalAssets * 0.55))) }
+        { name: 'Current Assets',   value: currentAssets ?? 0 },
+        { name: 'Fixed Assets',     value: totalAssets != null ? Math.round(totalAssets * 0.55) : 0 },
+        { name: 'Intangible Assets',value: totalAssets != null && currentAssets != null ? Math.max(0, Math.round(totalAssets - currentAssets - (totalAssets * 0.55))) : 0 }
       ]
     });
     setShowFieldMapping(false);
@@ -317,19 +320,12 @@ export default function FinSightApp() {
     setIsForecasting(true);
     try {
       
+      const forecastPayload = buildForecastRequestBody(financialData);
+
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/forecast`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          revenue:            financialData.revenue,
-          expenses:           financialData.expenses,
-          currentAssets:      financialData.currentAssets,
-          currentLiabilities: financialData.currentLiabilities,
-          totalAssets:        financialData.totalAssets,
-          totalDebt:          financialData.totalDebt,
-          equity:             financialData.equity,
-          cashFlow:           financialData.cashFlow
-        })
+        body: JSON.stringify(forecastPayload),
       });
 
       if (!response.ok) {
@@ -605,37 +601,65 @@ export default function FinSightApp() {
 
   // UC1 (Manual): Builds flat 6-month chart data from a single annual entry
   const submitManualData = () => {
-    const revenue  = parseFloat(manualData.revenue)  || 0;
-    const expenses = parseFloat(manualData.expenses) || 0;
+    const parseManualNum = (v) => (v != null && v !== '' && !isNaN(parseFloat(v)) ? parseFloat(v) : null);
+    const revenue  = parseManualNum(manualData.revenue)  ?? 0;
+    const expenses = parseManualNum(manualData.expenses) ?? 0;
     const monthlyRevenue = [];
+    const historicalMonths = [];
     const months   = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
     const monthRev = Math.round(revenue  / 12);
     const monthExp = Math.round(expenses / 12);
+    const currentAssets      = parseManualNum(manualData.currentAssets);
+    const currentLiabilities = parseManualNum(manualData.currentLiabilities);
+    const totalAssets        = parseManualNum(manualData.totalAssets);
+    const totalDebt          = parseManualNum(manualData.totalDebt);
+    const equity             = parseManualNum(manualData.equity);
+    const cashFlowAnnual     = parseManualNum(manualData.cashFlow);
+    const inventory          = parseManualNum(manualData.inventory);
+    const interestExpense    = parseManualNum(manualData.interestExpense);
+    const debtService        = parseManualNum(manualData.debtService);
+
     months.forEach((month) => {
+      const monthCF = Math.round((monthRev - monthExp) * 0.8);
       monthlyRevenue.push({
         month, revenue: monthRev, expenses: monthExp,
         profit:   monthRev - monthExp,
-        cashFlow: Math.round((monthRev - monthExp) * 0.8)
+        cashFlow: monthCF,
+      });
+      historicalMonths.push({
+        month,
+        revenue: monthRev,
+        expenses: monthExp,
+        cashFlow: monthCF,
+        currentAssets,
+        currentLiabilities,
+        totalAssets,
+        totalDebt,
+        equity,
+        inventory: null,
+        interestExpense: null,
+        debtService: null,
       });
     });
-    const currentAssets = parseFloat(manualData.currentAssets) || 0;
-    const totalAssets   = parseFloat(manualData.totalAssets)   || 0;
+
     setFinancialData({
       companyName:        manualData.companyName || 'My Company',
-      revenue, expenses, currentAssets,
-      currentLiabilities: parseFloat(manualData.currentLiabilities) || 0,
-      totalAssets,
-      totalDebt:          parseFloat(manualData.totalDebt) || 0,
-      equity:             parseFloat(manualData.equity)    || 0,
-      cashFlow:           parseFloat(manualData.cashFlow)  || 0,
-      inventory:          manualData.inventory != null && manualData.inventory !== '' ? parseFloat(manualData.inventory) : null,
-      interestExpense:    manualData.interestExpense != null && manualData.interestExpense !== '' ? parseFloat(manualData.interestExpense) : null,
-      debtService:        manualData.debtService != null && manualData.debtService !== '' ? parseFloat(manualData.debtService) : null,
+      revenue, expenses,
+      currentAssets:      currentAssets ?? 0,
+      currentLiabilities: currentLiabilities ?? 0,
+      totalAssets:        totalAssets ?? 0,
+      totalDebt:          totalDebt ?? 0,
+      equity:             equity ?? 0,
+      cashFlow:           cashFlowAnnual ?? 0,
+      inventory,
+      interestExpense,
+      debtService,
+      historicalMonths,
       monthlyRevenue,
       assetBreakdown: [
-        { name: 'Current Assets',    value: currentAssets },
-        { name: 'Fixed Assets',      value: Math.round(totalAssets * 0.55) },
-        { name: 'Intangible Assets', value: totalAssets - currentAssets - Math.round(totalAssets * 0.55) }
+        { name: 'Current Assets',    value: currentAssets ?? 0 },
+        { name: 'Fixed Assets',      value: totalAssets != null ? Math.round(totalAssets * 0.55) : 0 },
+        { name: 'Intangible Assets', value: totalAssets != null && currentAssets != null ? totalAssets - currentAssets - Math.round(totalAssets * 0.55) : 0 }
       ]
     });
     setShowManualEntry(false);
