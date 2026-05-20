@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, FileText, CheckCircle, AlertTriangle, XCircle, Calculator, TrendingUp, Settings, Save, BarChart3, ArrowRight, ArrowLeft, Building2, DollarSign, Circle, Brain, Zap } from 'lucide-react';
+import { Upload, FileText, CheckCircle, AlertTriangle, XCircle, Calculator, TrendingUp, Settings, Save, BarChart3, ArrowRight, ArrowLeft, Building2, DollarSign, Circle, Brain, Zap, X } from 'lucide-react';
+import { demoDatasets, demoProfiles, DEMO_COLUMNS, processDemoDataset } from './utils/demoData';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, ComposedChart, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ReferenceLine } from 'recharts';
 
 // UC5: Industry benchmark thresholds — drives all scoring and knockout logic
@@ -25,6 +26,7 @@ export default function FinSightApp() {
   const [selectedIndustry, setSelectedIndustry] = useState('Default');
   const [showSettings, setShowSettings] = useState(false);
   const [showManualEntry, setShowManualEntry] = useState(false);
+  const [showDemoModal, setShowDemoModal] = useState(false);
   const [showFieldMapping, setShowFieldMapping] = useState(false);
   const [detectedColumns, setDetectedColumns] = useState([]);
   const [fieldMappings, setFieldMappings] = useState({
@@ -549,6 +551,28 @@ export default function FinSightApp() {
     setManualData({ ...manualData, [field]: value });
   };
 
+  // UC1 (Demo): Loads a pre-built 12-month SME profile through the same ETL path as CSV upload
+  const loadDemoProfile = (profileKey) => {
+    const profile = demoProfiles.find((p) => p.key === profileKey);
+    const rows = demoDatasets[profileKey];
+    if (!profile || !rows) return;
+
+    setFinancialData(processDemoDataset(rows, `${profile.title} (Demo)`));
+    setUploadedFile({ name: `Demo Data — ${profile.title}` });
+    setRawFileData({ columns: DEMO_COLUMNS, sampleRow: rows[0], allRows: rows });
+    setDetectedColumns(DEMO_COLUMNS);
+    setFieldMappings({
+      companyName: '', revenue: 'Revenue', expenses: 'Expenses',
+      currentAssets: 'Current_Assets', currentLiabilities: 'Current_Liabilities',
+      totalAssets: 'Total_Assets', totalDebt: 'Total_Debt', equity: 'Equity', cashFlow: 'Cashflow',
+    });
+    setShowDemoModal(false);
+    setShowFieldMapping(false);
+    setShowManualEntry(false);
+    setAssessmentResults(null);
+    setForecastData(null);
+  };
+
   // UC1 (Manual): Builds flat 6-month chart data from a single annual entry
   const submitManualData = () => {
     const revenue  = parseFloat(manualData.revenue)  || 0;
@@ -625,7 +649,7 @@ export default function FinSightApp() {
         <main className="w-full px-8 py-10 max-w-4xl mx-auto space-y-6">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">New Assessment</h1>
-            <p className="text-sm text-slate-500 mt-1">Upload an SME financial CSV or enter data manually to begin.</p>
+            <p className="text-sm text-slate-500 mt-1">Upload an SME financial CSV, use demo data, or enter figures manually to begin.</p>
           </div>
 
           {/* UC1: CSV upload drop zone */}
@@ -650,8 +674,44 @@ export default function FinSightApp() {
               <button onClick={() => setShowManualEntry(!showManualEntry)} className="w-full mt-4 px-4 py-3 border border-slate-300 hover:border-indigo-400 hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 rounded-lg text-sm font-semibold transition-colors">
                 {showManualEntry ? 'Hide Manual Entry' : 'Enter Data Manually'}
               </button>
+              <button onClick={() => setShowDemoModal(true)} className="w-full mt-3 px-4 py-3 border border-dashed border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/50 text-slate-600 hover:text-indigo-700 rounded-lg text-sm font-semibold transition-colors">
+                Don&apos;t have financial data? Use Demo Data
+              </button>
             </div>
           </div>
+
+          {/* UC1 (Demo): SME profile picker modal */}
+          {showDemoModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowDemoModal(false)}>
+              <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                <div className="px-6 py-5 border-b border-slate-100 flex items-start justify-between sticky top-0 bg-white rounded-t-2xl">
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">Choose a Demo SME Profile</h2>
+                    <p className="text-sm text-slate-500 mt-1">12 months of pre-built financials. Select a profile to load instantly — no CSV required.</p>
+                  </div>
+                  <button onClick={() => setShowDemoModal(false)} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" aria-label="Close">
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {demoProfiles.map((profile) => (
+                    <button
+                      key={profile.key}
+                      onClick={() => loadDemoProfile(profile.key)}
+                      className={`text-left border-2 rounded-xl p-5 transition-all cursor-pointer ${profile.cardClass}`}
+                    >
+                      <span className={`inline-block text-xs font-bold px-2.5 py-1 rounded-full mb-3 ${profile.badgeClass}`}>
+                        Expected Score: {profile.expectedScore}
+                      </span>
+                      <h3 className="text-base font-bold text-slate-900 mb-2">{profile.title}</h3>
+                      <p className="text-xs text-slate-600 leading-relaxed">{profile.description}</p>
+                      <p className="text-xs font-semibold text-indigo-600 mt-4">Click to load →</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* UC1: Manual entry form */}
           {showManualEntry && (
