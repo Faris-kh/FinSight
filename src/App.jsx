@@ -45,7 +45,7 @@ export default function FinSightApp() {
   const [activeForecastMonth, setActiveForecastMonth] = useState(1);
   const [isScenarioMode, setIsScenarioMode] = useState(false);    // What-If sandbox toggle
   const [scenarioData, setScenarioData] = useState(null);         // deep copy of financialData for sandbox
-  const [selectedIndustry, setSelectedIndustry] = useState('Default');
+  const [selectedIndustry, setSelectedIndustry] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [showDemoModal, setShowDemoModal] = useState(false);
@@ -418,7 +418,7 @@ export default function FinSightApp() {
 
   // UC5: Dynamic 7-ratio assessment builder — shared by computeAssessment and calculateAssessment
   const buildAssessment = (data) => {
-    const bench = industryStandards[selectedIndustry];
+    const bench = industryStandards[selectedIndustry] || industryStandards.Default;
     const ebit = data.revenue - data.expenses;
 
     const currentRatio = data.currentLiabilities > 0
@@ -528,6 +528,21 @@ export default function FinSightApp() {
     const altmanRaw = 6.56 * zX1 + 3.26 * zX2 + 6.72 * zX3 + 1.05 * zX4;
     const altmanZone = altmanRaw > 2.6 ? 'Safe' : altmanRaw >= 1.1 ? 'Grey' : 'Distress';
 
+    // Probability of Default — piecewise-linear mapping from Altman Z'' zones.
+    // Boundaries align with traffic-light thresholds: <20% green, 20–60% amber, >60% red.
+    //   Distress  (Z ≤ 1.1): PD interpolates 90% → 62%
+    //   Grey      (1.1–2.6): PD interpolates 60% → 21%
+    //   Safe      (Z > 2.6): PD interpolates 19% → floor 3%
+    let probabilityOfDefault;
+    if (altmanRaw <= 1.1) {
+      probabilityOfDefault = Math.min(0.90, 0.90 - (Math.max(0, altmanRaw) / 1.1) * 0.28);
+    } else if (altmanRaw <= 2.6) {
+      probabilityOfDefault = 0.60 - ((altmanRaw - 1.1) / 1.5) * 0.39;
+    } else {
+      probabilityOfDefault = Math.max(0.03, 0.19 - ((altmanRaw - 2.6) / 2.4) * 0.16);
+    }
+    probabilityOfDefault = parseFloat(probabilityOfDefault.toFixed(4));
+
     return {
       ratios: {
         currentRatio: currentRatio.toFixed(2),
@@ -545,6 +560,7 @@ export default function FinSightApp() {
       decision,
       knockouts,
       altmanZScore: { score: parseFloat(altmanRaw.toFixed(2)), zone: altmanZone },
+      probabilityOfDefault,
       strengths: [
         ...(scores.currentRatio >= 80 ? ['Strong liquidity position'] : []),
         ...(!hasNegativeEquity && scores.debtToEquity >= 80 ? ['Low debt relative to equity'] : []),
@@ -575,7 +591,7 @@ export default function FinSightApp() {
   // Also saves a snapshot to the portfolio and sets assessmentResults state
   const calculateAssessment = () => {
     const result = buildAssessment(financialData);
-    const { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore } = result;
+    const { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore, probabilityOfDefault } = result;
 
     const portfolioEntry = {
       id: Date.now(),
@@ -597,7 +613,7 @@ export default function FinSightApp() {
       knockouts: knockouts.length,
       activeRatioCount: activeRatios.length,
       totalPossibleRatios: 7,
-      assessmentSnapshot: { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore },
+      assessmentSnapshot: { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore, probabilityOfDefault },
       financialSnapshot: JSON.parse(JSON.stringify(financialData)),
     };
     setPortfolioViewMeta(null);
@@ -607,7 +623,7 @@ export default function FinSightApp() {
       return [...prev, portfolioEntry];
     });
 
-    setAssessmentResults({ ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore });
+    setAssessmentResults({ ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore, probabilityOfDefault });
     setCurrentPage('assessment');
   };
 
@@ -730,7 +746,7 @@ export default function FinSightApp() {
   };
 
   const getRatioBenchmark = (key) => {
-    const bench = industryStandards[selectedIndustry];
+    const bench = industryStandards[selectedIndustry] || industryStandards.Default;
     if (key === 'currentRatio') return `Min: ${bench.minCurrentRatio}x`;
     if (key === 'debtToEquity') return `Max: ${bench.maxDebtEquity}x`;
     if (key === 'ebitdaMargin') return `Min: ${bench.minEBITDAMargin}%`;
@@ -1176,20 +1192,23 @@ export default function FinSightApp() {
               <div>
                 <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">SME Industry</label>
                 <select value={selectedIndustry} onChange={(e) => setSelectedIndustry(e.target.value)} className="px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 font-medium focus:ring-2 focus:ring-indigo-500 outline-none">
-                  {Object.keys(industryStandards).map(industry => (<option key={industry} value={industry}>{industry}</option>))}
+                  <option value="" disabled>Select an industry</option>
+                  {['SaaS', 'Retail', 'Construction', 'Logistics'].map(industry => (<option key={industry} value={industry}>{industry}</option>))}
                 </select>
               </div>
-              <div className="text-xs text-slate-500 space-y-0.5 border-l border-slate-200 pl-4">
-                <p>Min EBITDA Margin: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minEBITDAMargin}%</span></p>
-                <p>Min DSCR: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minDSCR}x</span></p>
-                <p>Min Current Ratio: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minCurrentRatio}x</span></p>
-                <p>Max D/E: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].maxDebtEquity}x</span></p>
-                <p>Min ROA: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minROA}%</span></p>
-                <p>Min Quick Ratio: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minQuickRatio}x</span></p>
-                <p>Min ICR: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minICR}x</span></p>
-              </div>
+              {selectedIndustry && (
+                <div className="text-xs text-slate-500 space-y-0.5 border-l border-slate-200 pl-4">
+                  <p>Min EBITDA Margin: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minEBITDAMargin}%</span></p>
+                  <p>Min DSCR: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minDSCR}x</span></p>
+                  <p>Min Current Ratio: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minCurrentRatio}x</span></p>
+                  <p>Max D/E: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].maxDebtEquity}x</span></p>
+                  <p>Min ROA: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minROA}%</span></p>
+                  <p>Min Quick Ratio: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minQuickRatio}x</span></p>
+                  <p>Min ICR: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minICR}x</span></p>
+                </div>
+              )}
             </div>
-            <button onClick={calculateAssessment} className="w-full flex items-center justify-center gap-2 px-8 py-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-semibold text-sm shadow-md transition-colors">
+            <button onClick={calculateAssessment} disabled={!selectedIndustry} className="w-full flex items-center justify-center gap-2 px-8 py-3.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl font-semibold text-sm shadow-md transition-colors">
               <Calculator className="h-5 w-5" />Run Funding Assessment
             </button>
           </div>
@@ -1453,7 +1472,21 @@ export default function FinSightApp() {
                           <p className="text-5xl font-bold text-slate-900 mb-2">
                             {altman?.score !== null && altman?.score !== undefined ? Number(altman.score).toFixed(2) : '—'}
                           </p>
-                          <p className="text-xs text-slate-500 mb-4">Master bankruptcy-risk health metric</p>
+                          <p className="text-xs text-slate-500 mb-3">Master bankruptcy-risk health metric</p>
+                          {activeResults.probabilityOfDefault != null && (
+                            <div className={`flex items-center justify-between px-3 py-2 rounded-lg mb-1 ${
+                              activeResults.probabilityOfDefault < 0.20 ? 'bg-emerald-100'
+                              : activeResults.probabilityOfDefault < 0.60 ? 'bg-amber-100'
+                              : 'bg-rose-100'
+                            }`}>
+                              <span className="text-xs font-semibold text-slate-600">Prob. of Default</span>
+                              <span className={`text-sm font-bold tabular-nums ${
+                                activeResults.probabilityOfDefault < 0.20 ? 'text-emerald-700'
+                                : activeResults.probabilityOfDefault < 0.60 ? 'text-amber-700'
+                                : 'text-rose-700'
+                              }`}>{(activeResults.probabilityOfDefault * 100).toFixed(2)}%</span>
+                            </div>
+                          )}
                         </div>
                         <span className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold self-start border ${classes.badge}`}>
                           {String(zone).toLowerCase() === 'safe' && <CheckCircle className="h-4 w-4" />}
@@ -1509,6 +1542,22 @@ export default function FinSightApp() {
                     )}
                   </div>
                 </div>
+
+                {/* Risk Gauge — Probability of Default */}
+                {activeResults.probabilityOfDefault != null && (
+                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="flex justify-between items-center mb-2">
+                      <h3 className="text-sm font-bold text-slate-500 uppercase">Prob. of Default</h3>
+                      <span className="font-mono text-lg font-bold">{(activeResults.probabilityOfDefault * 100).toFixed(2)}%</span>
+                    </div>
+                    <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-500 ${activeResults.probabilityOfDefault < 0.2 ? 'bg-emerald-500' : activeResults.probabilityOfDefault < 0.6 ? 'bg-amber-500' : 'bg-red-500'}`}
+                        style={{ width: `${activeResults.probabilityOfDefault * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {/* Strengths, weaknesses, recommendations */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -1693,7 +1742,7 @@ export default function FinSightApp() {
                     ? Math.max(0, projectedCurrentAssets - financialData.inventory) / financialData.currentLiabilities
                     : null;
 
-                  const standards = industryStandards[selectedIndustry];
+                  const standards = industryStandards[selectedIndustry] || industryStandards.Default;
                   const dscrBreach = projectedDSCR !== null && projectedDSCR < 1.0;
                   const currentRatioBreach = projectedCurrentRatio !== null && projectedCurrentRatio < standards.minCurrentRatio;
                   const quickRatioBreach = projectedQuickRatio !== null && projectedQuickRatio < standards.minQuickRatio;
@@ -1733,6 +1782,24 @@ export default function FinSightApp() {
                                 : 'bg-rose-900 text-rose-300'
                               }`}>{projectedAssessment.decision}</span>
                             </div>
+
+                            {/* Risk Gauge — Projected Prob. of Default */}
+                            {projectedAssessment.probabilityOfDefault != null && (
+                              <div className="col-span-2 bg-slate-900 border border-slate-700 rounded-xl p-4">
+                                <div className="flex justify-between items-center mb-2">
+                                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Prob. of Default</p>
+                                  <span className={`font-mono text-base font-bold ${projectedAssessment.probabilityOfDefault < 0.2 ? 'text-emerald-400' : projectedAssessment.probabilityOfDefault < 0.6 ? 'text-amber-400' : 'text-rose-400'}`}>
+                                    {(projectedAssessment.probabilityOfDefault * 100).toFixed(2)}%
+                                  </span>
+                                </div>
+                                <div className="w-full bg-slate-700 rounded-full h-2.5 overflow-hidden">
+                                  <div
+                                    className={`h-full transition-all duration-500 ${projectedAssessment.probabilityOfDefault < 0.2 ? 'bg-emerald-500' : projectedAssessment.probabilityOfDefault < 0.6 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                                    style={{ width: `${projectedAssessment.probabilityOfDefault * 100}%` }}
+                                  />
+                                </div>
+                              </div>
+                            )}
 
                             {/* DSCR */}
                             <div className={`rounded-xl p-4 border ${dscrBreach ? 'bg-rose-950 border-rose-700' : 'bg-slate-900 border-slate-700'}`}>
