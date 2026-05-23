@@ -41,6 +41,8 @@ export default function FinSightApp() {
   const [assessmentResults, setAssessmentResults] = useState(null); // snapshot after UC5 runs
   const [forecastData, setForecastData] = useState(null);         // UC4 backend response
   const [isForecasting, setIsForecasting] = useState(false);
+  const [isStressTestActive, setIsStressTestActive] = useState(false);
+  const [activeForecastMonth, setActiveForecastMonth] = useState(1);
   const [isScenarioMode, setIsScenarioMode] = useState(false);    // What-If sandbox toggle
   const [scenarioData, setScenarioData] = useState(null);         // deep copy of financialData for sandbox
   const [selectedIndustry, setSelectedIndustry] = useState('Default');
@@ -315,12 +317,22 @@ export default function FinSightApp() {
     setShowFieldMapping(false);
   };
 
-  // UC4: ML Forecast — sends annualized financials to FastAPI, receives 6-month LightGBM prediction
-  const runForecast = async () => {
+  // UC4: Stress Test — sends annualized financials to FastAPI, receives 6-month LightGBM prediction
+  const runStressTest = async () => {
     setIsForecasting(true);
     try {
-      
-      const forecastPayload = buildForecastRequestBody(financialData);
+      // Explicitly map the payload to match the new FastAPI DES schema
+      const forecastPayload = {
+        historicalCashFlows: financialData.monthlyRevenue.map(row => row.cashFlow ?? 0),
+        currentAssets: financialData.currentAssets ?? 0,
+        currentLiabilities: financialData.currentLiabilities ?? 0,
+        totalAssets: financialData.totalAssets ?? 0,
+        totalDebt: financialData.totalDebt ?? 0,
+        equity: financialData.equity ?? 0,
+        inventory: financialData.inventory ?? null,
+        debtService: financialData.debtService ?? null,
+        confidenceTier: "standard"
+      };
 
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/forecast`, {
         method: 'POST',
@@ -330,12 +342,26 @@ export default function FinSightApp() {
 
       if (!response.ok) {
         const err = await response.json();
-        alert('Forecast error: ' + (err.detail || 'Unknown error'));
+        // Properly format the JSON array so it is readable in the alert box
+        const errorMessage = typeof err.detail === 'string' 
+          ? err.detail 
+          : JSON.stringify(err.detail, null, 2);
+          
+        alert('Forecast API Error:\n' + errorMessage);
         setIsForecasting(false);
         return;
       }
 
-      const forecast = await response.json();
+      const rawForecastResponse = await response.json();
+
+      // 1. Safely extract the array from inside the new FastAPI JSON object
+      const forecastArray = rawForecastResponse.forecastedCashflow || rawForecastResponse.forecastedCashFlow || [];
+
+      if (!forecastArray.length) {
+        alert('Forecast error: backend returned no 6-month forecast data.');
+        setIsForecasting(false);
+        return;
+      }
 
       // Anchor: insert the last historical point as the first forecast point
       // so both chart lines connect at the boundary without a visual gap
@@ -350,19 +376,23 @@ export default function FinSightApp() {
           upperBound:         lastHistorical.cashFlow,
           lowerBound:         lastHistorical.cashFlow,
         },
-        ...forecast.map(d => ({
+        ...forecastArray.map(d => ({
           month:              d.month,
-          forecastedCashFlow: d.forecastedCashFlow,
-          upperBound:         d.upperBound,
-          lowerBound:         Math.max(0, d.lowerBound)
+          // Accept camelCase or snake_case from backend
+          forecastedCashFlow: d.forecastedCashFlow ?? d.forecasted_cash_flow ?? 0,
+          upperBound:         d.upperBound ?? d.upper_bound,
+          lowerBound:         d.lowerBound ?? d.lower_bound ?? 0,
+          dscr:               d.dscr,
+          quickRatio:         d.quickRatio,
+          currentRatio:       d.currentRatio
         }))
       ];
 
-      const total   = forecast.reduce((sum, f) => sum + f.forecastedCashFlow, 0);
-      const avg     = Math.round(total / forecast.length);
-      const avgConf = Math.round(forecast.reduce((sum, f) => sum + f.confidence, 0) / forecast.length * 100);
-      const first   = forecast[0].forecastedCashFlow;
-      const last    = forecast[forecast.length - 1].forecastedCashFlow;
+      const total   = forecastArray.reduce((sum, f) => sum + (f.forecastedCashFlow ?? f.forecasted_cash_flow ?? 0), 0);
+      const avg     = Math.round(total / forecastArray.length);
+      const avgConf = 80; // Hardcoded fallback since we removed it from the math loop
+      const first   = forecastArray[0].forecastedCashFlow ?? forecastArray[0].forecasted_cash_flow ?? 0;
+      const last    = forecastArray[forecastArray.length - 1].forecastedCashFlow ?? forecastArray[forecastArray.length - 1].forecasted_cash_flow ?? 0;
       const change  = (last - first) / Math.abs(first);
 
       // Negative average overrides trend direction regardless of slope
@@ -373,11 +403,15 @@ export default function FinSightApp() {
       else                     trend = 'Stable';
 
       setForecastData({
-        combined, forecast,
+        combined, 
+        forecast: forecastArray, // Pass the extracted array into state
         summary: { avgForecast: avg, totalForecast: Math.round(total), trend, confidence: avgConf }
       });
+      setIsStressTestActive(true);
+      setActiveForecastMonth(1);
     } catch (error) {
-      alert('Could not reach the backend. Make sure your FastAPI server is running:\n\nuvicorn main:app --reload --port 8000');
+      console.error("Full forecast error:", error);
+      alert('True Error: ' + error.message + '\n\nCheck your browser console (Ctrl+Shift+I) for more details.');
     }
     setIsForecasting(false);
   };
@@ -485,6 +519,15 @@ export default function FinSightApp() {
     const overallScore = knockouts.length > 0 ? Math.min(weightedScore, 30) : weightedScore;
     const decision = knockouts.length > 0 ? 'REJECTED' : overallScore >= 70 ? 'APPROVED' : overallScore >= 50 ? 'REVIEW' : 'REJECTED';
 
+    // Altman Z''-Score — Private Non-Manufacturing variant
+    // Z'' = 6.56(X1) + 3.26(X2) + 6.72(X3) + 1.05(X4)
+    const zX1 = data.totalAssets > 0 ? (data.currentAssets - data.currentLiabilities) / data.totalAssets : 0;
+    const zX2 = data.totalAssets > 0 ? data.equity / data.totalAssets : 0;
+    const zX3 = data.totalAssets > 0 ? ebit / data.totalAssets : 0;
+    const zX4 = data.totalDebt > 0 ? data.equity / data.totalDebt : 0;
+    const altmanRaw = 6.56 * zX1 + 3.26 * zX2 + 6.72 * zX3 + 1.05 * zX4;
+    const altmanZone = altmanRaw > 2.6 ? 'Safe' : altmanRaw >= 1.1 ? 'Grey' : 'Distress';
+
     return {
       ratios: {
         currentRatio: currentRatio.toFixed(2),
@@ -501,6 +544,7 @@ export default function FinSightApp() {
       overallScore: overallScore.toFixed(1),
       decision,
       knockouts,
+      altmanZScore: { score: parseFloat(altmanRaw.toFixed(2)), zone: altmanZone },
       strengths: [
         ...(scores.currentRatio >= 80 ? ['Strong liquidity position'] : []),
         ...(!hasNegativeEquity && scores.debtToEquity >= 80 ? ['Low debt relative to equity'] : []),
@@ -531,7 +575,7 @@ export default function FinSightApp() {
   // Also saves a snapshot to the portfolio and sets assessmentResults state
   const calculateAssessment = () => {
     const result = buildAssessment(financialData);
-    const { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses } = result;
+    const { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore } = result;
 
     const portfolioEntry = {
       id: Date.now(),
@@ -553,7 +597,7 @@ export default function FinSightApp() {
       knockouts: knockouts.length,
       activeRatioCount: activeRatios.length,
       totalPossibleRatios: 7,
-      assessmentSnapshot: { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses },
+      assessmentSnapshot: { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore },
       financialSnapshot: JSON.parse(JSON.stringify(financialData)),
     };
     setPortfolioViewMeta(null);
@@ -563,7 +607,7 @@ export default function FinSightApp() {
       return [...prev, portfolioEntry];
     });
 
-    setAssessmentResults({ ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses });
+    setAssessmentResults({ ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore });
     setCurrentPage('assessment');
   };
 
@@ -701,6 +745,13 @@ export default function FinSightApp() {
     if (value === null || value === undefined) return 'N/A';
     if (key === 'ebitdaMargin' || key === 'roa') return `${value}%`;
     return value;
+  };
+
+  const getAltmanZoneClasses = (zone) => {
+    const z = String(zone).toLowerCase();
+    if (z === 'safe')    return { card: 'bg-emerald-50 border-emerald-200', icon: 'text-emerald-600', badge: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
+    if (z === 'distress') return { card: 'bg-rose-50 border-rose-200',       icon: 'text-rose-600',    badge: 'bg-rose-100 text-rose-700 border-rose-200' };
+    return { card: 'bg-amber-50 border-amber-200', icon: 'text-amber-600', badge: 'bg-amber-100 text-amber-700 border-amber-200' };
   };
 
   // Portfolio: restore a saved assessment and open the full report view
@@ -951,7 +1002,7 @@ export default function FinSightApp() {
               <Building2 className="h-4 w-4" />Portfolio {portfolio.length > 0 && `(${portfolio.length})`}
             </button>
             <div className="w-px h-5 bg-slate-700" />
-            <button onClick={() => { setCurrentPage('upload'); setFinancialData(null); setUploadedFile(null); setAssessmentResults(null); setForecastData(null); }} className="flex items-center gap-2 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-sm font-medium transition-colors">
+            <button onClick={() => { setCurrentPage('upload'); setFinancialData(null); setUploadedFile(null); setAssessmentResults(null); setForecastData(null); setIsStressTestActive(false); setActiveForecastMonth(1); }} className="flex items-center gap-2 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-sm font-medium transition-colors">
               <ArrowLeft className="h-4 w-4" />New Assessment
             </button>
             <button onClick={() => { localStorage.removeItem('finsight_auth'); window.location.href = '/'; }} className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-semibold transition-colors">
@@ -1018,90 +1069,6 @@ export default function FinSightApp() {
               <p className="text-2xl font-bold text-slate-900">{financialData.equity <= 0 ? 'N/A' : (financialData.totalDebt / financialData.equity).toFixed(2)}</p>
               <p className="text-xs text-slate-400 mt-1">Threshold: {thresholds.debtToEquity.max}x</p>
             </div>
-          </div>
-
-          {/* UC4: AI Forecast card */}
-          <div className="bg-slate-900 border-2 border-slate-800 rounded-xl shadow-md p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-indigo-600 rounded-lg"><Brain className="h-5 w-5 text-white" /></div>
-                <div>
-                  <h2 className="text-base font-bold text-white">AI Cash Flow Forecast</h2>
-                  <p className="text-xs text-slate-400">LightGBM model — 6-month forward projection</p>
-                </div>
-              </div>
-              <button onClick={runForecast} disabled={isForecasting} className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-sm font-semibold transition-colors">
-                <Zap className="h-4 w-4" />
-                {isForecasting ? 'Running Model...' : forecastData ? 'Re-run Forecast' : 'Run Forecast'}
-              </button>
-            </div>
-
-            {isForecasting && (
-              <div className="flex items-center justify-center h-64 gap-4">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-400" />
-                <p className="text-slate-300 text-sm font-medium">Running LightGBM inference...</p>
-              </div>
-            )}
-
-            {!isForecasting && !forecastData && (
-              <div className="flex items-center justify-center h-64 border border-dashed border-slate-700 rounded-lg">
-                <div className="text-center">
-                  <Brain className="h-10 w-10 text-slate-600 mx-auto mb-2" />
-                  <p className="text-slate-500 text-sm">Click Run Forecast to generate the 6-month projection</p>
-                </div>
-              </div>
-            )}
-
-            {forecastData && (
-              <div className="space-y-5">
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                  {[
-                    { label: 'Avg Monthly CF', value: `${(forecastData.summary.avgForecast / 1000).toFixed(0)}K SAR` },
-                    { label: '6-Month Total',  value: `${(forecastData.summary.totalForecast / 1000000).toFixed(2)}M SAR` },
-                    { label: 'Trend',          value: forecastData.summary.trend },
-                    { label: 'Confidence',     value: `${forecastData.summary.confidence}%` },
-                  ].map(({ label, value }, idx) => (
-                    <div key={idx} className="bg-slate-800 border border-slate-700 rounded-lg p-4">
-                      <p className="text-xs text-slate-400 mb-1">{label}</p>
-                      <p className="text-lg font-bold text-white">{value}</p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Forecast chart — white box inside dark card */}
-                <div className="h-72 bg-white rounded-xl p-4">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={forecastData.combined}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                      <XAxis dataKey="month" stroke="#94A3B8" style={{ fontSize: '11px' }} />
-                      <YAxis stroke="#94A3B8" style={{ fontSize: '11px' }} tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
-                      <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #E2E8F0', borderRadius: '8px', fontSize: '12px', color: '#1E293B' }}
-                        formatter={(value, name) => [
-                          value >= 1000000 ? `${(value/1000000).toFixed(2)}M SAR` : `${(value/1000).toFixed(0)}K SAR`,
-                          name === 'actualCashFlow' ? 'Current Cash Flow' : name === 'forecastedCashFlow' ? 'Forecast' : name
-                        ]} />
-                      <Area dataKey="upperBound" fill="#6366F1" stroke="none" fillOpacity={0.1} />
-                      <Area dataKey="lowerBound" fill="#6366F1" stroke="none" fillOpacity={0.1} />
-                      <Line dataKey="actualCashFlow" stroke="#0F172A" strokeWidth={2} dot={{ r: 3 }} name="actualCashFlow" />
-                      <Line dataKey="forecastedCashFlow" stroke="#6366F1" strokeWidth={2.5} strokeDasharray="5 5" dot={{ r: 3 }} name="forecastedCashFlow" />
-                      {/* Dashed vertical line marking where forecast begins */}
-                      {forecastData.combined.findIndex(d => d.forecastedCashFlow !== undefined) > 0 && (
-                        <ReferenceLine
-                          x={forecastData.combined[forecastData.combined.findIndex(d => d.forecastedCashFlow !== undefined)].month}
-                          stroke="#94A3B8" strokeDasharray="4 4"
-                          label={{ value: 'Forecast Start', position: 'insideTopRight', fontSize: 10, fill: '#94A3B8', dy: -6 }}
-                        />
-                      )}
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="flex items-center gap-6 mt-4 justify-center">
-                  <div className="flex items-center gap-2 text-xs text-slate-400"><div className="w-5 h-0.5 bg-slate-900 rounded" />Current Cash Flow</div>
-                  <div className="flex items-center gap-2 text-xs text-slate-400"><div className="w-5 h-0.5 bg-indigo-500 rounded" style={{ backgroundImage: 'repeating-linear-gradient(90deg, #6366F1 0px, #6366F1 4px, transparent 4px, transparent 8px)' }} />Forecast</div>
-                  <div className="flex items-center gap-2 text-xs text-slate-400"><div className="w-5 h-3 bg-indigo-500 rounded opacity-20" />Confidence Band</div>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Bottom charts: revenue trend (full width), risk radar + debt/equity (side by side) */}
@@ -1204,7 +1171,7 @@ export default function FinSightApp() {
           </div>
 
           {/* UC5: Industry selector + Run Assessment — industry choice drives all benchmark comparisons */}
-          <div className="flex items-center justify-between pb-4 bg-white border border-slate-200 rounded-xl shadow-sm px-6 py-4">
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-6 py-4 space-y-4">
             <div className="flex items-center gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">SME Industry</label>
@@ -1222,7 +1189,7 @@ export default function FinSightApp() {
                 <p>Min ICR: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minICR}x</span></p>
               </div>
             </div>
-            <button onClick={calculateAssessment} className="flex items-center gap-2 px-8 py-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-semibold text-sm shadow-md transition-colors">
+            <button onClick={calculateAssessment} className="w-full flex items-center justify-center gap-2 px-8 py-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-semibold text-sm shadow-md transition-colors">
               <Calculator className="h-5 w-5" />Run Funding Assessment
             </button>
           </div>
@@ -1423,7 +1390,7 @@ export default function FinSightApp() {
                 )}
 
                 {/* Decision card + ratio breakdown */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
                   <div className={`rounded-xl shadow-sm p-6 border flex flex-col justify-between ${
                     activeResults.decision === 'APPROVED' ? 'bg-emerald-50 border-emerald-200'
                     : activeResults.decision === 'REVIEW'  ? 'bg-amber-50 border-amber-200'
@@ -1437,7 +1404,28 @@ export default function FinSightApp() {
                         {activeResults.decision === 'REJECTED' && <XCircle className="h-6 w-6 text-rose-600" />}
                       </div>
                       <p className="text-5xl font-bold text-slate-900 mb-2">{activeResults.overallScore}%</p>
-                      <p className="text-xs text-slate-500 mb-4">Weighted composite score</p>
+                      <p className="text-xs text-slate-500 mb-3">Weighted composite score</p>
+                      {activeResults.altmanZScore && (
+                        <div className={`px-3 py-2.5 rounded-lg border flex items-center justify-between mb-4 ${
+                          activeResults.altmanZScore.zone === 'Safe'    ? 'bg-emerald-50 border-emerald-200'
+                          : activeResults.altmanZScore.zone === 'Grey'  ? 'bg-amber-50 border-amber-200'
+                          : 'bg-rose-50 border-rose-200'
+                        }`}>
+                          <div>
+                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide leading-none mb-1">Altman Z''-Score</p>
+                            <p className={`text-xl font-bold leading-none ${
+                              activeResults.altmanZScore.zone === 'Safe'   ? 'text-emerald-700'
+                              : activeResults.altmanZScore.zone === 'Grey' ? 'text-amber-700'
+                              : 'text-rose-700'
+                            }`}>{activeResults.altmanZScore.score.toFixed(2)}</p>
+                          </div>
+                          <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                            activeResults.altmanZScore.zone === 'Safe'   ? 'bg-emerald-100 text-emerald-700'
+                            : activeResults.altmanZScore.zone === 'Grey' ? 'bg-amber-100 text-amber-800'
+                            : 'bg-rose-100 text-rose-700'
+                          }`}>{activeResults.altmanZScore.zone}</span>
+                        </div>
+                      )}
                     </div>
                     <span className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold self-start ${
                       activeResults.decision === 'APPROVED' ? 'bg-emerald-100 text-emerald-700'
@@ -1450,6 +1438,32 @@ export default function FinSightApp() {
                       {activeResults.decision}
                     </span>
                   </div>
+
+                  {(() => {
+                    const altman = activeResults.altmanZScore || null;
+                    const zone = altman?.zone || 'Pending';
+                    const classes = getAltmanZoneClasses(zone);
+                    return (
+                      <div className={`rounded-xl shadow-sm p-6 border flex flex-col justify-between ${classes.card}`}>
+                        <div>
+                          <div className="flex items-center justify-between mb-4">
+                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Altman Z''-Score</span>
+                            <BarChart3 className={`h-6 w-6 ${classes.icon}`} />
+                          </div>
+                          <p className="text-5xl font-bold text-slate-900 mb-2">
+                            {altman?.score !== null && altman?.score !== undefined ? Number(altman.score).toFixed(2) : '—'}
+                          </p>
+                          <p className="text-xs text-slate-500 mb-4">Master bankruptcy-risk health metric</p>
+                        </div>
+                        <span className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold self-start border ${classes.badge}`}>
+                          {String(zone).toLowerCase() === 'safe' && <CheckCircle className="h-4 w-4" />}
+                          {(String(zone).toLowerCase() === 'grey' || String(zone).toLowerCase() === 'gray' || zone === 'Pending') && <AlertTriangle className="h-4 w-4" />}
+                          {String(zone).toLowerCase() === 'distress' && <XCircle className="h-4 w-4" />}
+                          {zone} Zone
+                        </span>
+                      </div>
+                    );
+                  })()}
 
                   <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl shadow-sm p-6">
                     <h3 className="text-sm font-bold text-slate-700 mb-4">Financial Ratios Breakdown</h3>
@@ -1545,6 +1559,254 @@ export default function FinSightApp() {
             );
           })()}
 
+          {/* AIStressTestModule — State 1: inactive trigger, State 2: interactive workspace */}
+          <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+            {!isStressTestActive ? (
+              <div className="p-8">
+                <div className="flex items-start gap-4 mb-6">
+                  <div className="p-3 bg-indigo-600 rounded-xl flex-shrink-0">
+                    <Brain className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-white mb-1">Predictive Risk & Covenant Stress Test</h2>
+                    <p className="text-sm text-slate-400">Simulate future cash flow momentum to project covenant breaches and liquidity risk.</p>
+                  </div>
+                </div>
+                {isForecasting ? (
+                  <div className="flex items-center gap-3 text-slate-300 text-sm">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-400" />
+                    Running LightGBM inference...
+                  </div>
+                ) : (
+                  <button
+                    onClick={runStressTest}
+                    className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-colors"
+                  >
+                    <Zap className="h-4 w-4" />
+                    Run 6-Month AI Liquidity Forecast
+                  </button>
+                )}
+              </div>
+            ) : forecastData ? (
+              <div>
+                {/* Module header */}
+                <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-indigo-600 rounded-lg">
+                      <Brain className="h-4 w-4 text-white" />
+                    </div>
+                    <div>
+                      <h2 className="text-sm font-bold text-white">Predictive Risk & Covenant Stress Test</h2>
+                      <p className="text-xs text-slate-400">Double Exponential Smoothing (DES) 6-month projection — move slider to project covenant impact</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                      forecastData.summary.trend === 'Growing' ? 'bg-emerald-900 text-emerald-300'
+                      : forecastData.summary.trend === 'Declining' ? 'bg-rose-900 text-rose-300'
+                      : 'bg-slate-700 text-slate-300'
+                    }`}>{forecastData.summary.trend}</span>
+                    <span className="text-xs text-slate-400">Confidence: <span className="font-bold text-slate-300">{forecastData.summary.confidence}%</span></span>
+                    <button
+                      onClick={() => { setIsStressTestActive(false); setForecastData(null); }}
+                      className="text-xs text-slate-400 hover:text-white px-2.5 py-1 hover:bg-slate-700 rounded-lg transition-colors"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+
+                {/* Row 1: Timeline slider + Chart */}
+                <div className="p-6 space-y-4">
+                  <div className="flex items-center gap-4 bg-slate-900 rounded-xl px-5 py-3">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Forecast Month</span>
+                    <div className="flex-1 flex items-center gap-3">
+                      <span className="text-xs text-slate-500">M1</span>
+                      <input
+                        type="range" min={1} max={6} step={1}
+                        value={activeForecastMonth}
+                        onChange={(e) => setActiveForecastMonth(parseInt(e.target.value))}
+                        className="flex-1 accent-indigo-500"
+                      />
+                      <span className="text-xs text-slate-500">M6</span>
+                    </div>
+                    <span className="text-sm font-bold text-indigo-300 whitespace-nowrap bg-indigo-900 px-3 py-1 rounded-lg">Month {activeForecastMonth}</span>
+                  </div>
+
+                  <div className="h-64 bg-slate-900 rounded-xl p-4">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={forecastData.combined}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
+                        <XAxis dataKey="month" stroke="#475569" style={{ fontSize: '10px' }} tick={{ fill: '#64748B' }} />
+                        <YAxis stroke="#475569" style={{ fontSize: '10px' }} tick={{ fill: '#64748B' }} tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: '#0F172A', border: '1px solid #334155', borderRadius: '8px', fontSize: '12px', color: '#E2E8F0' }}
+                          formatter={(value, name) => [
+                            value >= 1000000 ? `${(value/1000000).toFixed(2)}M SAR` : `${(value/1000).toFixed(0)}K SAR`,
+                            name === 'actualCashFlow' ? 'Cash Flow' : name === 'forecastedCashFlow' ? 'Forecast' : name
+                          ]}
+                        />
+                        <Area dataKey="upperBound" fill="#6366F1" stroke="none" fillOpacity={0.15} />
+                        <Area dataKey="lowerBound" fill="#6366F1" stroke="none" fillOpacity={0.15} />
+                        <Line dataKey="actualCashFlow" stroke="#94A3B8" strokeWidth={2} dot={{ r: 2, fill: '#94A3B8' }} name="actualCashFlow" />
+                        <Line dataKey="forecastedCashFlow" stroke="#818CF8" strokeWidth={2.5} strokeDasharray="5 5" dot={{ r: 2, fill: '#818CF8' }} name="forecastedCashFlow" />
+                        {forecastData.combined.findIndex(d => d.forecastedCashFlow !== undefined) > 0 && (
+                          <ReferenceLine
+                            x={forecastData.combined[forecastData.combined.findIndex(d => d.forecastedCashFlow !== undefined)].month}
+                            stroke="#475569" strokeDasharray="4 4"
+                            label={{ value: 'Forecast Start', position: 'insideTopRight', fontSize: 9, fill: '#475569' }}
+                          />
+                        )}
+                        <ReferenceLine
+                          x={forecastData.forecast[activeForecastMonth - 1].month}
+                          stroke="#6366F1" strokeWidth={2}
+                          label={{ value: `M${activeForecastMonth}`, position: 'insideTopLeft', fontSize: 10, fill: '#818CF8' }}
+                        />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <div className="flex items-center gap-6 justify-center">
+                    <div className="flex items-center gap-2 text-xs text-slate-500"><div className="w-5 h-0.5 bg-slate-400 rounded" />Historical CF</div>
+                    <div className="flex items-center gap-2 text-xs text-slate-500"><div className="w-5 h-0.5 bg-indigo-400 rounded" style={{ backgroundImage: 'repeating-linear-gradient(90deg, #818CF8 0px, #818CF8 4px, transparent 4px, transparent 8px)' }} />Forecast</div>
+                    <div className="flex items-center gap-2 text-xs text-slate-500"><div className="w-5 h-3 bg-indigo-500 rounded opacity-20" />Confidence Band</div>
+                    <div className="flex items-center gap-2 text-xs text-slate-500"><div className="w-0.5 h-4 bg-indigo-500 rounded" />Selected Month</div>
+                  </div>
+                </div>
+
+                {/* Row 2: Dynamic covenant cards + static baseline */}
+                {(() => {
+                  const forecastMonth = forecastData.forecast[activeForecastMonth - 1];
+                  const baselineMonthlyCF = (financialData.cashFlow || 0) / 12;
+                  const projectedMonthlyCF = forecastMonth?.forecastedCashFlow ?? baselineMonthlyCF;
+                  const projectedAnnualCF = projectedMonthlyCF * 12;
+                  const cumulativeCFDelta = (projectedMonthlyCF - baselineMonthlyCF) * activeForecastMonth;
+                  const projectedCurrentAssets = Math.max(0, financialData.currentAssets + cumulativeCFDelta);
+
+                  const projectedDSCR = financialData.debtService != null && financialData.debtService > 0
+                    ? projectedAnnualCF / financialData.debtService
+                    : null;
+                  const projectedCurrentRatio = financialData.currentLiabilities > 0
+                    ? projectedCurrentAssets / financialData.currentLiabilities
+                    : null;
+                  const projectedQuickRatio = financialData.currentLiabilities > 0 && financialData.inventory != null
+                    ? Math.max(0, projectedCurrentAssets - financialData.inventory) / financialData.currentLiabilities
+                    : null;
+
+                  const standards = industryStandards[selectedIndustry];
+                  const dscrBreach = projectedDSCR !== null && projectedDSCR < 1.0;
+                  const currentRatioBreach = projectedCurrentRatio !== null && projectedCurrentRatio < standards.minCurrentRatio;
+                  const quickRatioBreach = projectedQuickRatio !== null && projectedQuickRatio < standards.minQuickRatio;
+
+                  const projectedFinData = {
+                    ...financialData,
+                    revenue: financialData.expenses + projectedAnnualCF,
+                    cashFlow: projectedAnnualCF,
+                    currentAssets: projectedCurrentAssets,
+                  };
+                  const projectedAssessment = computeAssessment(projectedFinData);
+                  const baseline = assessmentResults.ratios;
+
+                  return (
+                    <div className="px-6 pb-6 space-y-4">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Month {activeForecastMonth} — Projected Covenant Impact</span>
+                        <div className="h-px flex-1 bg-slate-700" />
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {/* Left: dynamic covenants updated by slider */}
+                        <div className="space-y-3">
+                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Dynamic Covenants</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            {/* Projected Score card — full width */}
+                            <div className="col-span-2 bg-slate-900 border border-slate-700 rounded-xl p-4 flex items-center gap-4">
+                              <div>
+                                <p className="text-xs text-slate-400 mb-1">Projected Funding Score</p>
+                                <p className={`text-3xl font-bold ${parseFloat(projectedAssessment.overallScore) >= 70 ? 'text-emerald-400' : parseFloat(projectedAssessment.overallScore) >= 50 ? 'text-amber-400' : 'text-rose-400'}`}>
+                                  {projectedAssessment.overallScore}%
+                                </p>
+                              </div>
+                              <span className={`text-xs font-bold px-3 py-1.5 rounded-lg ${
+                                projectedAssessment.decision === 'APPROVED' ? 'bg-emerald-900 text-emerald-300'
+                                : projectedAssessment.decision === 'REVIEW'  ? 'bg-amber-900 text-amber-300'
+                                : 'bg-rose-900 text-rose-300'
+                              }`}>{projectedAssessment.decision}</span>
+                            </div>
+
+                            {/* DSCR */}
+                            <div className={`rounded-xl p-4 border ${dscrBreach ? 'bg-rose-950 border-rose-700' : 'bg-slate-900 border-slate-700'}`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <p className={`text-xs font-semibold ${dscrBreach ? 'text-rose-300' : 'text-slate-400'}`}>DSCR</p>
+                                {dscrBreach && <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />}
+                              </div>
+                              <p className={`text-xl font-bold ${dscrBreach ? 'text-rose-300' : 'text-white'}`}>
+                                {projectedDSCR !== null ? `${projectedDSCR.toFixed(2)}x` : 'N/A'}
+                              </p>
+                              <p className={`text-xs mt-1 ${dscrBreach ? 'text-rose-400 font-semibold' : 'text-slate-600'}`}>
+                                {dscrBreach ? 'Breach — below 1.0x' : projectedDSCR !== null ? `Min: 1.0x` : 'No debt service data'}
+                              </p>
+                            </div>
+
+                            {/* Current Ratio */}
+                            <div className={`rounded-xl p-4 border ${currentRatioBreach ? 'bg-rose-950 border-rose-700' : 'bg-slate-900 border-slate-700'}`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <p className={`text-xs font-semibold ${currentRatioBreach ? 'text-rose-300' : 'text-slate-400'}`}>Current Ratio</p>
+                                {currentRatioBreach && <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />}
+                              </div>
+                              <p className={`text-xl font-bold ${currentRatioBreach ? 'text-rose-300' : 'text-white'}`}>
+                                {projectedCurrentRatio !== null ? `${projectedCurrentRatio.toFixed(2)}x` : 'N/A'}
+                              </p>
+                              <p className={`text-xs mt-1 ${currentRatioBreach ? 'text-rose-400 font-semibold' : 'text-slate-600'}`}>
+                                {currentRatioBreach ? `Breach — below ${standards.minCurrentRatio}x` : `Min: ${standards.minCurrentRatio}x`}
+                              </p>
+                            </div>
+
+                            {/* Quick Ratio — full width */}
+                            <div className={`col-span-2 rounded-xl p-4 border ${quickRatioBreach ? 'bg-rose-950 border-rose-700' : 'bg-slate-900 border-slate-700'}`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <p className={`text-xs font-semibold ${quickRatioBreach ? 'text-rose-300' : 'text-slate-400'}`}>Quick Ratio</p>
+                                {quickRatioBreach && <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />}
+                              </div>
+                              <p className={`text-xl font-bold ${quickRatioBreach ? 'text-rose-300' : 'text-white'}`}>
+                                {projectedQuickRatio !== null ? `${projectedQuickRatio.toFixed(2)}x` : 'N/A (inventory data not provided)'}
+                              </p>
+                              <p className={`text-xs mt-1 ${quickRatioBreach ? 'text-rose-400 font-semibold' : 'text-slate-600'}`}>
+                                {quickRatioBreach ? `Breach — below ${standards.minQuickRatio}x` : projectedQuickRatio !== null ? `Min: ${standards.minQuickRatio}x` : ''}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Right: static structural baseline */}
+                        <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 flex flex-col">
+                          <div className="flex items-center gap-2 mb-4 flex-wrap">
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Structural Metrics</p>
+                            <span className="px-2.5 py-0.5 bg-slate-700 text-slate-300 text-xs font-bold rounded-full">Held Static (Operating Baseline)</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-5 flex-1">
+                            {[
+                              { label: 'D/E Ratio',     raw: baseline.debtToEquity, suffix: baseline.debtToEquity && !baseline.debtToEquity.startsWith('N/A') ? 'x' : '' },
+                              { label: 'ICR',           raw: baseline.icr,          suffix: baseline.icr ? 'x' : '' },
+                              { label: 'ROA',           raw: baseline.roa,          suffix: baseline.roa ? '%' : '' },
+                              { label: 'EBITDA Margin', raw: baseline.ebitdaMargin, suffix: baseline.ebitdaMargin ? '%' : '' },
+                            ].map(({ label, raw, suffix }) => (
+                              <div key={label} className="border-l-2 border-slate-700 pl-3">
+                                <p className="text-xs text-slate-500 mb-0.5">{label}</p>
+                                <p className="text-base font-bold text-slate-300">{raw != null ? `${raw}${suffix}` : 'N/A'}</p>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-xs text-slate-700 mt-5 italic">Reflects Month 0 balance sheet — unchanged by the forecast slider.</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : null}
+          </div>
+
         </main>
       </div>
     );
@@ -1565,7 +1827,7 @@ export default function FinSightApp() {
                 <ArrowLeft className="h-4 w-4" />Dashboard
               </button>
             )}
-            <button onClick={() => { setCurrentPage('upload'); setFinancialData(null); setUploadedFile(null); setAssessmentResults(null); setForecastData(null); setPortfolioViewMeta(null); }} className="flex items-center gap-2 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-sm font-medium transition-colors">
+            <button onClick={() => { setCurrentPage('upload'); setFinancialData(null); setUploadedFile(null); setAssessmentResults(null); setForecastData(null); setPortfolioViewMeta(null); setIsStressTestActive(false); setActiveForecastMonth(1); }} className="flex items-center gap-2 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-sm font-medium transition-colors">
               <Upload className="h-4 w-4" />New Assessment
             </button>
             <button onClick={() => { localStorage.removeItem('finsight_auth'); window.location.href = '/'; }} className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-semibold transition-colors">
