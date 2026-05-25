@@ -1490,27 +1490,6 @@ export default function FinSightApp() {
                       </div>
                       <p className="text-5xl font-bold text-slate-900 mb-2">{activeResults.overallScore}%</p>
                       <p className="text-xs text-slate-500 mb-3">Weighted composite score</p>
-                      {activeResults.altmanZScore && (
-                        <div className={`px-3 py-2.5 rounded-lg border flex items-center justify-between mb-4 ${
-                          activeResults.altmanZScore.zone === 'Safe'    ? 'bg-emerald-50 border-emerald-200'
-                          : activeResults.altmanZScore.zone === 'Grey'  ? 'bg-amber-50 border-amber-200'
-                          : 'bg-rose-50 border-rose-200'
-                        }`}>
-                          <div>
-                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wide leading-none mb-1">Altman Z''-Score</p>
-                            <p className={`text-xl font-bold leading-none ${
-                              activeResults.altmanZScore.zone === 'Safe'   ? 'text-emerald-700'
-                              : activeResults.altmanZScore.zone === 'Grey' ? 'text-amber-700'
-                              : 'text-rose-700'
-                            }`}>{activeResults.altmanZScore.score.toFixed(2)}</p>
-                          </div>
-                          <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-                            activeResults.altmanZScore.zone === 'Safe'   ? 'bg-emerald-100 text-emerald-700'
-                            : activeResults.altmanZScore.zone === 'Grey' ? 'bg-amber-100 text-amber-800'
-                            : 'bg-rose-100 text-rose-700'
-                          }`}>{activeResults.altmanZScore.zone}</span>
-                        </div>
-                      )}
                     </div>
                     <span className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold self-start ${
                       activeResults.decision === 'APPROVED' ? 'bg-emerald-100 text-emerald-700'
