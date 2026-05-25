@@ -43,3 +43,16 @@ export interface ComputeAssessmentResponse {
    */
   probabilityOfDefault: number;
 }
+
+/** One month entry returned inside the `forecast` array from POST /api/forecast. */
+export interface MonthForecast {
+  month: string;
+  forecastedCashFlow: number;
+  upperBound?: number | null;
+  lowerBound?: number | null;
+  dscr?: number | null;
+  quickRatio?: number | null;
+  currentRatio?: number | null;
+  /** ML-predicted probability of default for this specific month (range [0, 1]). */
+  probabilityOfDefault: number;
+}

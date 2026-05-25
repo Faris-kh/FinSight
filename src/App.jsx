@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Upload, FileText, CheckCircle, AlertTriangle, XCircle, Calculator, TrendingUp, Settings, Save, BarChart3, ArrowRight, ArrowLeft, Building2, DollarSign, Circle, Brain, Zap, X } from 'lucide-react';
 import { demoDatasets, demoProfiles, DEMO_COLUMNS, processDemoDataset } from './utils/demoData';
 import {
@@ -45,6 +45,8 @@ export default function FinSightApp() {
   const [activeForecastMonth, setActiveForecastMonth] = useState(1);
   const [isScenarioMode, setIsScenarioMode] = useState(false);    // What-If sandbox toggle
   const [scenarioData, setScenarioData] = useState(null);         // deep copy of financialData for sandbox
+  const [scenarioMlData, setScenarioMlData] = useState(null);     // ML PoD/Z-Score overlay for Scenario Mode
+  const scenarioDebounceRef = useRef(null);
   const [selectedIndustry, setSelectedIndustry] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showManualEntry, setShowManualEntry] = useState(false);
@@ -322,6 +324,11 @@ export default function FinSightApp() {
     setIsForecasting(true);
     try {
       // Explicitly map the payload to match the new FastAPI DES schema
+      const _ebit = (financialData.revenue ?? 0) - (financialData.expenses ?? 0);
+      const _icr = financialData.interestExpense != null && financialData.interestExpense > 0
+        ? _ebit / financialData.interestExpense
+        : null;
+
       const forecastPayload = {
         historicalCashFlows: financialData.monthlyRevenue.map(row => row.cashFlow ?? 0),
         currentAssets: financialData.currentAssets ?? 0,
@@ -331,6 +338,11 @@ export default function FinSightApp() {
         equity: financialData.equity ?? 0,
         inventory: financialData.inventory ?? null,
         debtService: financialData.debtService ?? null,
+        industry: selectedIndustry,
+        revenue: financialData.revenue ?? 0,
+        expenses: financialData.expenses ?? 0,
+        retainedEarnings: financialData.retainedEarnings ?? null,
+        icr: _icr,
         confidenceTier: "standard"
       };
 
@@ -450,9 +462,9 @@ export default function FinSightApp() {
       knockouts.push('Critical liquidity failure — current ratio below 0.5');
     if (data.cashFlow < 0 && data.totalDebt > 0)
       knockouts.push('Negative cash flow with outstanding debt');
-    if (dscr !== null && hasDebt && dscr < bench.minDSCR)
+    if (dscr !== null && hasDebt && dscr < bench.minDSCR && thresholds.dscr.weight > 0)
       knockouts.push(`DSCR of ${dscr.toFixed(2)} — below ${selectedIndustry} minimum of ${bench.minDSCR}x`);
-    if (icr !== null && icr < 1.0)
+    if (icr !== null && icr < 1.0 && thresholds.icr.weight > 0)
       knockouts.push(`Interest Coverage of ${icr.toFixed(2)}x — cannot cover interest payments`);
 
     // Scores a single ratio 0-100 against the industry benchmark
@@ -528,21 +540,6 @@ export default function FinSightApp() {
     const altmanRaw = 6.56 * zX1 + 3.26 * zX2 + 6.72 * zX3 + 1.05 * zX4;
     const altmanZone = altmanRaw > 2.6 ? 'Safe' : altmanRaw >= 1.1 ? 'Grey' : 'Distress';
 
-    // Probability of Default — piecewise-linear mapping from Altman Z'' zones.
-    // Boundaries align with traffic-light thresholds: <20% green, 20–60% amber, >60% red.
-    //   Distress  (Z ≤ 1.1): PD interpolates 90% → 62%
-    //   Grey      (1.1–2.6): PD interpolates 60% → 21%
-    //   Safe      (Z > 2.6): PD interpolates 19% → floor 3%
-    let probabilityOfDefault;
-    if (altmanRaw <= 1.1) {
-      probabilityOfDefault = Math.min(0.90, 0.90 - (Math.max(0, altmanRaw) / 1.1) * 0.28);
-    } else if (altmanRaw <= 2.6) {
-      probabilityOfDefault = 0.60 - ((altmanRaw - 1.1) / 1.5) * 0.39;
-    } else {
-      probabilityOfDefault = Math.max(0.03, 0.19 - ((altmanRaw - 2.6) / 2.4) * 0.16);
-    }
-    probabilityOfDefault = parseFloat(probabilityOfDefault.toFixed(4));
-
     return {
       ratios: {
         currentRatio: currentRatio.toFixed(2),
@@ -560,7 +557,6 @@ export default function FinSightApp() {
       decision,
       knockouts,
       altmanZScore: { score: parseFloat(altmanRaw.toFixed(2)), zone: altmanZone },
-      probabilityOfDefault,
       strengths: [
         ...(scores.currentRatio >= 80 ? ['Strong liquidity position'] : []),
         ...(!hasNegativeEquity && scores.debtToEquity >= 80 ? ['Low debt relative to equity'] : []),
@@ -589,9 +585,45 @@ export default function FinSightApp() {
 
   // UC5: Scoring Engine — dynamic up to 7 ratios, applies knockouts, produces APPROVED/REVIEW/REJECTED
   // Also saves a snapshot to the portfolio and sets assessmentResults state
-  const calculateAssessment = () => {
+  const calculateAssessment = async () => {
     const result = buildAssessment(financialData);
-    const { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore, probabilityOfDefault } = result;
+    const { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore } = result;
+
+    // ML-based PoD from backend — independent of Forecast; falls back gracefully on failure
+    let mlAltmanZScore = altmanZScore;
+    let probabilityOfDefault = null;
+    try {
+      const ebit = financialData.revenue - financialData.expenses;
+      const mlRes = await fetch(`${import.meta.env.VITE_API_URL}/api/computeAssessment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          revenue: financialData.revenue,
+          expenses: financialData.expenses,
+          currentAssets: financialData.currentAssets,
+          currentLiabilities: financialData.currentLiabilities,
+          totalAssets: financialData.totalAssets,
+          totalDebt: financialData.totalDebt,
+          equity: financialData.equity,
+          cashFlow: financialData.cashFlow,
+          industry: selectedIndustry,
+          icr: (financialData.interestExpense != null && financialData.interestExpense > 0)
+            ? ebit / financialData.interestExpense : null,
+          dscr: (financialData.totalDebt > 0 && financialData.debtService != null && financialData.debtService > 0)
+            ? ebit / financialData.debtService : null,
+          inventory: financialData.inventory ?? null,
+          interestExpense: financialData.interestExpense ?? null,
+          debtService: financialData.debtService ?? null,
+        }),
+      });
+      if (mlRes.ok) {
+        const ml = await mlRes.json();
+        mlAltmanZScore = ml.altmanZScore;
+        probabilityOfDefault = ml.probabilityOfDefault;
+      }
+    } catch (err) {
+      console.error('computeAssessment ML call failed — local Z-Score retained:', err);
+    }
 
     const portfolioEntry = {
       id: Date.now(),
@@ -613,7 +645,7 @@ export default function FinSightApp() {
       knockouts: knockouts.length,
       activeRatioCount: activeRatios.length,
       totalPossibleRatios: 7,
-      assessmentSnapshot: { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore, probabilityOfDefault },
+      assessmentSnapshot: { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore: mlAltmanZScore, probabilityOfDefault },
       financialSnapshot: JSON.parse(JSON.stringify(financialData)),
     };
     setPortfolioViewMeta(null);
@@ -623,8 +655,40 @@ export default function FinSightApp() {
       return [...prev, portfolioEntry];
     });
 
-    setAssessmentResults({ ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore, probabilityOfDefault });
+    setAssessmentResults({ ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore: mlAltmanZScore, probabilityOfDefault });
     setCurrentPage('assessment');
+  };
+
+  // UC6 (Scenario): POST stressed hypothetical numbers to ML backend, update scenarioMlData
+  const fetchScenarioMl = async (data) => {
+    try {
+      const ebit = data.revenue - data.expenses;
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/computeAssessment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          revenue: data.revenue,
+          expenses: data.expenses,
+          currentAssets: data.currentAssets,
+          currentLiabilities: data.currentLiabilities,
+          totalAssets: data.totalAssets,
+          totalDebt: data.totalDebt,
+          equity: data.equity,
+          cashFlow: data.cashFlow,
+          industry: selectedIndustry,
+          icr: (data.interestExpense != null && data.interestExpense > 0)
+            ? ebit / data.interestExpense : null,
+          dscr: (data.totalDebt > 0 && data.debtService != null && data.debtService > 0)
+            ? ebit / data.debtService : null,
+          inventory: data.inventory ?? null,
+          interestExpense: data.interestExpense ?? null,
+          debtService: data.debtService ?? null,
+        }),
+      });
+      if (!res.ok) return;
+      const ml = await res.json();
+      setScenarioMlData({ altmanZScore: ml.altmanZScore, probabilityOfDefault: ml.probabilityOfDefault });
+    } catch {}
   };
 
   // Updates a single threshold field (value or weight) in state
@@ -1237,10 +1301,12 @@ export default function FinSightApp() {
             {/* UC6 (Scenario): toggles What-If sandbox — deep copies financialData into scenarioData */}
             <button
               onClick={() => {
-                if (isScenarioMode) { setIsScenarioMode(false); setScenarioData(null); }
+                if (isScenarioMode) { setIsScenarioMode(false); setScenarioData(null); setScenarioMlData(null); }
                 else {
+                  const copy = JSON.parse(JSON.stringify(financialData));
                   setIsScenarioMode(true);
-                  setScenarioData(JSON.parse(JSON.stringify(financialData)));
+                  setScenarioData(copy);
+                  fetchScenarioMl(copy);
                 }
               }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isScenarioMode ? 'bg-amber-500 hover:bg-amber-400 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'}`}
@@ -1756,12 +1822,32 @@ export default function FinSightApp() {
                   const projectedAssessment = computeAssessment(projectedFinData);
                   const baseline = assessmentResults.ratios;
 
+                  const podValue = forecastMonth?.probabilityOfDefault ?? projectedAssessment.probabilityOfDefault;
+
                   return (
                     <div className="px-6 pb-6 space-y-4">
                       <div className="flex items-center gap-3">
                         <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Month {activeForecastMonth} — Projected Covenant Impact</span>
                         <div className="h-px flex-1 bg-slate-700" />
                       </div>
+
+                      {/* PoD Risk Gauge — uses API value when available, falls back to local projection */}
+                      {podValue != null && (
+                        <div className="bg-slate-900 border border-slate-700 rounded-xl px-5 py-4">
+                          <div className="flex justify-between items-center mb-2">
+                            <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Prob. of Default — Month {activeForecastMonth}</p>
+                            <span className={`font-mono text-base font-bold ${podValue < 0.2 ? 'text-emerald-400' : podValue < 0.6 ? 'text-amber-400' : 'text-rose-400'}`}>
+                              {(podValue * 100).toFixed(2)}%
+                            </span>
+                          </div>
+                          <div className="w-full bg-slate-700 rounded-full h-2.5 overflow-hidden">
+                            <div
+                              className={`h-full transition-all duration-500 ${podValue < 0.2 ? 'bg-emerald-500' : podValue < 0.6 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                              style={{ width: `${podValue * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         {/* Left: dynamic covenants updated by slider */}
