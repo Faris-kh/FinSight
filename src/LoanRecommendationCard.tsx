@@ -42,10 +42,10 @@ interface BackendLoanRec {
   binding_constraint: string; // e.g. "dscr" | "debt_ebitda" | "de" | "icr"
   status?: string;            // e.g. "NOT_RECOMMENDED_INSUFFICIENT_EARNINGS"
   ceilings: {
-    dscr?: number;
-    debt_ebitda?: number;
-    de?: number;
-    icr?: number;
+    dscr_ceiling?: number;
+    debt_ebitda_ceiling?: number;
+    de_ceiling?: number;
+    icr_ceiling?: number;
   };
 }
 
@@ -87,10 +87,10 @@ function getChartMax(constraints: Constraint[]): number {
 
 // Maps backend snake_case binding key → display key used in Constraint.key
 const BINDING_KEY_MAP: Record<string, string> = {
-  dscr:        'DSCR',
-  debt_ebitda: 'Debt/EBITDA',
-  de:          'D/E',
-  icr:         'ICR',
+  dscr_ceiling:        'DSCR',
+  debt_ebitda_ceiling: 'Debt/EBITDA',
+  de_ceiling:          'D/E',
+  icr_ceiling:         'ICR',
 };
 
 /** Build constraint array from backend loan_recommendation object. */
@@ -98,10 +98,10 @@ function buildConstraintsFromBackend(rec: BackendLoanRec): Constraint[] {
   const bindingKey = BINDING_KEY_MAP[(rec.binding_constraint ?? '').toLowerCase()] ?? '';
   const c = rec.ceilings ?? {};
   return [
-    { key: 'DSCR',        label: 'DSCR',        sublabel: '≥ 1.25×', value: c.dscr        ?? 0, binds: bindingKey === 'DSCR' },
-    { key: 'Debt/EBITDA', label: 'Debt/EBITDA', sublabel: '≤ 3.5×',  value: c.debt_ebitda ?? 0, binds: bindingKey === 'Debt/EBITDA' },
-    { key: 'D/E',         label: 'D/E',          sublabel: '≤ 2.0×',  value: c.de          ?? 0, binds: bindingKey === 'D/E' },
-    { key: 'ICR',         label: 'ICR',          sublabel: '≥ 2.0×',  value: c.icr         ?? 0, binds: bindingKey === 'ICR' },
+    { key: 'DSCR',        label: 'DSCR',        sublabel: '≥ 1.25×', value: c.dscr_ceiling        ?? 0, binds: bindingKey === 'DSCR' },
+    { key: 'Debt/EBITDA', label: 'Debt/EBITDA', sublabel: '≤ 3.5×',  value: c.debt_ebitda_ceiling ?? 0, binds: bindingKey === 'Debt/EBITDA' },
+    { key: 'D/E',         label: 'D/E',          sublabel: '≤ 2.0×',  value: c.de_ceiling          ?? 0, binds: bindingKey === 'D/E' },
+    { key: 'ICR',         label: 'ICR',          sublabel: '≥ 2.0×',  value: c.icr_ceiling  ?? 0, binds: bindingKey === 'ICR' },
   ];
 }
 
@@ -269,6 +269,7 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
           // Primary path: backend returns a loan_recommendation object
           const rec: BackendLoanRec | null = json.loan_recommendation ?? null;
           if (rec) {
+            console.log('[LoanRec] raw loan_recommendation:', JSON.stringify(rec, null, 2));
             setBackendLoanRec(rec);
           }
           // If backend does not return loan_recommendation yet, the local fallback
