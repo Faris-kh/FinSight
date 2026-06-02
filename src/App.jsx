@@ -585,14 +585,56 @@ export default function FinSightApp() {
   const computeAssessment = (data) => buildAssessment(data);
 
   // UC5: Scoring Engine — dynamic up to 7 ratios, applies knockouts, produces APPROVED/REVIEW/REJECTED
-  // Also saves a snapshot to the portfolio and sets assessmentResults state
+  // Navigates immediately with local results; ML PoD/Z-Score resolves async in the background.
   const calculateAssessment = async () => {
+    // Reset any stale forecast state from a prior run so the stress-test and loan modules
+    // start un-fetched on the fresh assessment page.
+    setIsStressTestActive(false);
+    setForecastData(null);
+
+    // Local scoring engine is synchronous — instant
     const result = buildAssessment(financialData);
     const { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore } = result;
 
-    // ML-based PoD from backend — independent of Forecast; falls back gracefully on failure
-    let mlAltmanZScore = altmanZScore;
-    let probabilityOfDefault = null;
+    const entryId = Date.now();
+    const baseSnapshot = { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore, probabilityOfDefault: null };
+
+    // Persist portfolio entry immediately with local data (PoD will be patched in below)
+    const portfolioEntry = {
+      id: entryId,
+      companyName: financialData.companyName,
+      assessedAt: new Date().toLocaleDateString('en-SA'),
+      overallScore,
+      decision,
+      industry: selectedIndustry,
+      ratios: {
+        currentRatio: ratios.currentRatio,
+        debtToEquity: ratios.debtToEquity.includes('N/A') ? 'N/A' : ratios.debtToEquity,
+        ebitdaMargin: ratios.ebitdaMargin,
+        roa: ratios.roa,
+        dscr: ratios.dscr.includes('N/A') || ratios.dscr === 'Unavailable' ? 'N/A' : ratios.dscr,
+        quickRatio: ratios.quickRatio !== null ? ratios.quickRatio : 'N/A',
+        icr: ratios.icr !== null ? ratios.icr : 'N/A'
+      },
+      revenue: financialData.revenue,
+      knockouts: knockouts.length,
+      activeRatioCount: activeRatios.length,
+      totalPossibleRatios: 7,
+      assessmentSnapshot: baseSnapshot,
+      financialSnapshot: JSON.parse(JSON.stringify(financialData)),
+    };
+    setPortfolioViewMeta(null);
+    setPortfolio(prev => {
+      const exists = prev.findIndex(p => p.companyName === financialData.companyName);
+      if (exists >= 0) { const updated = [...prev]; updated[exists] = portfolioEntry; return updated; }
+      return [...prev, portfolioEntry];
+    });
+
+    // Navigate immediately — user sees the assessment page with local results right away
+    setAssessmentResults(baseSnapshot);
+    setCurrentPage('assessment');
+
+    // ML call continues in background — patches PoD and Z-Score into state when resolved
     try {
       const ebit = financialData.revenue - financialData.expenses;
       const mlRes = await fetch(`${import.meta.env.VITE_API_URL}/api/computeAssessment`, {
@@ -619,45 +661,15 @@ export default function FinSightApp() {
       });
       if (mlRes.ok) {
         const ml = await mlRes.json();
-        mlAltmanZScore = ml.altmanZScore;
-        probabilityOfDefault = ml.probabilityOfDefault;
+        setAssessmentResults(prev => prev ? { ...prev, altmanZScore: ml.altmanZScore, probabilityOfDefault: ml.probabilityOfDefault } : prev);
+        setPortfolio(prev => prev.map(p => p.id === entryId
+          ? { ...p, assessmentSnapshot: { ...p.assessmentSnapshot, altmanZScore: ml.altmanZScore, probabilityOfDefault: ml.probabilityOfDefault } }
+          : p
+        ));
       }
     } catch (err) {
       console.error('computeAssessment ML call failed — local Z-Score retained:', err);
     }
-
-    const portfolioEntry = {
-      id: Date.now(),
-      companyName: financialData.companyName,
-      assessedAt: new Date().toLocaleDateString('en-SA'),
-      overallScore,
-      decision,
-      industry: selectedIndustry,
-      ratios: {
-        currentRatio: ratios.currentRatio,
-        debtToEquity: ratios.debtToEquity.includes('N/A') ? 'N/A' : ratios.debtToEquity,
-        ebitdaMargin: ratios.ebitdaMargin,
-        roa: ratios.roa,
-        dscr: ratios.dscr.includes('N/A') || ratios.dscr === 'Unavailable' ? 'N/A' : ratios.dscr,
-        quickRatio: ratios.quickRatio !== null ? ratios.quickRatio : 'N/A',
-        icr: ratios.icr !== null ? ratios.icr : 'N/A'
-      },
-      revenue: financialData.revenue,
-      knockouts: knockouts.length,
-      activeRatioCount: activeRatios.length,
-      totalPossibleRatios: 7,
-      assessmentSnapshot: { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore: mlAltmanZScore, probabilityOfDefault },
-      financialSnapshot: JSON.parse(JSON.stringify(financialData)),
-    };
-    setPortfolioViewMeta(null);
-    setPortfolio(prev => {
-      const exists = prev.findIndex(p => p.companyName === financialData.companyName);
-      if (exists >= 0) { const updated = [...prev]; updated[exists] = portfolioEntry; return updated; }
-      return [...prev, portfolioEntry];
-    });
-
-    setAssessmentResults({ ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore: mlAltmanZScore, probabilityOfDefault });
-    setCurrentPage('assessment');
   };
 
   // UC6 (Scenario): POST stressed hypothetical numbers to ML backend, update scenarioMlData
