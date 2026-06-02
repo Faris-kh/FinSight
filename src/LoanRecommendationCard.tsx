@@ -67,7 +67,9 @@ function useDebounce<T>(value: T, delay: number): T {
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
-function formatSAR(value: number, compact?: boolean): string {
+// Accepts number | null | undefined and treats NaN / Infinity / null / undefined as 0
+function formatSAR(raw: number | null | undefined, compact?: boolean): string {
+  const value = typeof raw === 'number' && isFinite(raw) ? raw : 0;
   if (compact) {
     if (Math.abs(value) >= 1_000_000) return `SAR ${(value / 1_000_000).toFixed(2)}M`;
     if (Math.abs(value) >= 1_000) return `SAR ${(value / 1_000).toFixed(0)}K`;
@@ -300,9 +302,9 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
     : localStressed;
   const chartMax = getChartMax(displayConstraints);
 
-  // Credit declined when backend explicitly signals it, or when max capacity rounds to zero
+  // !(x > 0) catches 0, NaN, null, and undefined — all signal an unusable capacity figure
   const isDeclined =
-    displayMaxLoan === 0 ||
+    !(displayMaxLoan > 0) ||
     (backendLoanRec?.status ?? '').includes('NOT_RECOMMENDED');
 
   const handleReveal = () => {
@@ -377,49 +379,57 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
         )}
       </div>
 
-      {/* Verdict */}
-      <div className="px-6 py-5 border-b border-slate-700">
-        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
-          Maximum Recommended Loan
-        </p>
-        <div className="flex flex-wrap items-end gap-3">
-          <span className={`text-[2.5rem] leading-none font-extrabold tracking-tight ${isUpdating ? 'animate-pulse opacity-60' : ''} ${isDeclined ? 'text-rose-400' : 'text-white'}`}>
-            {negativeEquity ? 'Manual Review Required' : isDeclined ? 'Credit Declined' : formatSAR(displayMaxLoan)}
-          </span>
-          {!negativeEquity && !isDeclined && (
-            <span className={`mb-0.5 flex items-center gap-1.5 px-2.5 py-1 bg-slate-700 border border-slate-600 rounded-full text-xs font-semibold text-slate-300 ${isUpdating ? 'animate-pulse opacity-60' : ''}`}>
-              <TrendingDown className="h-3 w-3 text-slate-400" />
-              Stressed Capacity (Worst Month): {formatSAR(displayStressed, true)}
-            </span>
-          )}
-        </div>
-        <p className="text-xs text-slate-500 mt-2">
-          At{' '}
-          <span className="font-semibold text-slate-300">{profitRate.toFixed(2)}% p.a.</span>
-          {' '}over{' '}
-          <span className="font-semibold text-slate-300">{tenor} months</span>
-          {' '}— minimum across all four constraint ceilings.
-          {backendLoanRec && <span className="ml-1 text-indigo-500">· Backend-computed</span>}
-        </p>
-      </div>
-
-      {/* Constraint Analysis — hidden when credit is declined */}
-      <div className="px-6 py-5 border-b border-slate-700">
-        {isDeclined ? (
-          <div className="flex items-start gap-3 bg-rose-950 border border-rose-800 rounded-xl px-5 py-4">
-            <AlertTriangle className="h-5 w-5 text-rose-400 flex-shrink-0 mt-0.5" />
+      {/* Verdict + Constraint Analysis — replaced entirely by the decline alert when capacity is zero */}
+      {isDeclined ? (
+        <div className="px-6 py-6 border-b border-slate-700">
+          <div className="flex items-start gap-4 bg-rose-950 border border-rose-700 rounded-xl p-5">
+            <AlertTriangle className="h-6 w-6 text-rose-400 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-bold text-rose-300 mb-1">Credit Declined</p>
-              <p className="text-xs text-rose-400 leading-relaxed">
-                Projected cash flow burn or negative earnings detected. Insufficient debt-servicing capacity.
+              <p className="text-base font-bold text-rose-300 mb-1.5">
+                Credit Declined: Insufficient Capacity
+              </p>
+              <p className="text-sm text-rose-400 leading-relaxed">
+                The engine detected projected cash flow burn or negative earnings within the 6-month
+                forecast horizon. The business cannot safely service additional debt.
               </p>
               {backendLoanRec?.status && (
-                <p className="text-[10px] text-rose-600 mt-2 font-mono">{backendLoanRec.status}</p>
+                <p className="text-[10px] text-rose-600 mt-3 font-mono tracking-wide">
+                  {backendLoanRec.status}
+                </p>
               )}
             </div>
           </div>
-        ) : (
-          <>
+        </div>
+      ) : (
+        <>
+          {/* Verdict */}
+          <div className="px-6 py-5 border-b border-slate-700">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+              Maximum Recommended Loan
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <span className={`text-[2.5rem] leading-none font-extrabold text-white tracking-tight ${isUpdating ? 'animate-pulse opacity-60' : ''}`}>
+                {negativeEquity ? 'Manual Review Required' : formatSAR(displayMaxLoan)}
+              </span>
+              {!negativeEquity && (
+                <span className={`mb-0.5 flex items-center gap-1.5 px-2.5 py-1 bg-slate-700 border border-slate-600 rounded-full text-xs font-semibold text-slate-300 ${isUpdating ? 'animate-pulse opacity-60' : ''}`}>
+                  <TrendingDown className="h-3 w-3 text-slate-400" />
+                  Stressed Capacity (Worst Month): {formatSAR(displayStressed, true)}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 mt-2">
+              At{' '}
+              <span className="font-semibold text-slate-300">{profitRate.toFixed(2)}% p.a.</span>
+              {' '}over{' '}
+              <span className="font-semibold text-slate-300">{tenor} months</span>
+              {' '}— minimum across all four constraint ceilings.
+              {backendLoanRec && <span className="ml-1 text-indigo-500">· Backend-computed</span>}
+            </p>
+          </div>
+
+          {/* Constraint Analysis */}
+          <div className="px-6 py-5 border-b border-slate-700">
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Constraint Analysis</p>
               <span className="text-[10px] text-slate-500 font-medium">Scale max: {formatSAR(chartMax, true)}</span>
@@ -429,9 +439,9 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
                 <ConstraintBar key={c.key} c={c} chartMax={chartMax} isUpdating={isUpdating} />
               ))}
             </div>
-          </>
-        )}
-      </div>
+          </div>
+        </>
+      )}
 
       {/* Loan Parameters */}
       <div className="p-6 space-y-4">
