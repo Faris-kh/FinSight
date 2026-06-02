@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Upload, FileText, CheckCircle, AlertTriangle, XCircle, Calculator, TrendingUp, Settings, Save, BarChart3, ArrowRight, ArrowLeft, Building2, DollarSign, Circle, Brain, Zap, X } from 'lucide-react';
+import LoanRecommendationCard from './LoanRecommendationCard';
 import { demoDatasets, demoProfiles, DEMO_COLUMNS, processDemoDataset } from './utils/demoData';
 import {
   parseMappedNumeric,
@@ -1938,6 +1939,11 @@ export default function FinSightApp() {
               </div>
             ) : null}
           </div>
+
+          <LoanRecommendationCard
+            financialData={financialData}
+            industry={selectedIndustry}
+          />
 
         </main>
       </div>
