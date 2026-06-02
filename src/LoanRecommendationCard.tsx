@@ -35,6 +35,19 @@ interface Constraint {
   binds: boolean;
 }
 
+// Shape of the loan_recommendation object returned by /api/forecast
+interface BackendLoanRec {
+  base_max_capacity: number;
+  stressed_max_capacity: number;
+  binding_constraint: string; // e.g. "dscr" | "debt_ebitda" | "de" | "icr"
+  ceilings: {
+    dscr?: number;
+    debt_ebitda?: number;
+    de?: number;
+    icr?: number;
+  };
+}
+
 export interface LoanRecommendationCardProps {
   financialData: LoanFinancialData;
   industry: string;
@@ -62,7 +75,37 @@ function formatSAR(value: number, compact?: boolean): string {
   return `SAR ${Math.round(value).toLocaleString('en-SA')}`;
 }
 
-/** Present value of an annuity: max loan where annual debt service = annualCF / minDSCR */
+function getChartMax(constraints: Constraint[]): number {
+  const positives = constraints.map(c => c.value).filter(v => v > 0);
+  return positives.length > 0
+    ? Math.max(Math.max(...positives) * 1.1, 5_000_000)
+    : 5_000_000;
+}
+
+// Maps backend snake_case binding key → display key used in Constraint.key
+const BINDING_KEY_MAP: Record<string, string> = {
+  dscr:        'DSCR',
+  debt_ebitda: 'Debt/EBITDA',
+  de:          'D/E',
+  icr:         'ICR',
+};
+
+/** Build constraint array from backend loan_recommendation object. */
+function buildConstraintsFromBackend(rec: BackendLoanRec): Constraint[] {
+  const bindingKey = BINDING_KEY_MAP[(rec.binding_constraint ?? '').toLowerCase()] ?? '';
+  const c = rec.ceilings ?? {};
+  return [
+    { key: 'DSCR',        label: 'DSCR',        sublabel: '≥ 1.25×', value: c.dscr        ?? 0, binds: bindingKey === 'DSCR' },
+    { key: 'Debt/EBITDA', label: 'Debt/EBITDA', sublabel: '≤ 3.5×',  value: c.debt_ebitda ?? 0, binds: bindingKey === 'Debt/EBITDA' },
+    { key: 'D/E',         label: 'D/E',          sublabel: '≤ 2.0×',  value: c.de          ?? 0, binds: bindingKey === 'D/E' },
+    { key: 'ICR',         label: 'ICR',          sublabel: '≥ 2.0×',  value: c.icr         ?? 0, binds: bindingKey === 'ICR' },
+  ];
+}
+
+// ─── Local fallback constraint engine ────────────────────────────────────────
+// Used for immediate display before the backend responds and when the backend
+// does not return a loan_recommendation object.
+
 function pvAnnuity(annualCF: number, annualRatePct: number, tenorMonths: number, minDSCR: number): number {
   if (annualCF <= 0) return 0;
   const monthlyBudget = (annualCF / minDSCR) / 12;
@@ -71,29 +114,23 @@ function pvAnnuity(annualCF: number, annualRatePct: number, tenorMonths: number,
   return Math.max(0, monthlyBudget * (1 - Math.pow(1 + r, -tenorMonths)) / r);
 }
 
-function buildConstraints(
+function buildConstraintsLocal(
   fd: LoanFinancialData,
   profitRate: number,
   tenor: number,
-  overrideCF?: number,
-): { constraints: Constraint[]; maxLoan: number; stressedCapacity: number; negativeEquity: boolean; chartMax: number } {
+): { constraints: Constraint[]; maxLoan: number; stressedCapacity: number; negativeEquity: boolean } {
   const ebit = fd.revenue - fd.expenses;
-
   const flows = fd.monthlyRevenue.map(m => m.cashFlow ?? 0).filter(v => v !== 0);
   const avgMonthly = flows.length > 0
     ? flows.reduce((s, v) => s + v, 0) / flows.length
     : (fd.cashFlow ?? 0) / 12;
-  const annualCF = overrideCF ?? avgMonthly * 12;
+  const annualCF = avgMonthly * 12;
   const minMonthlyCF = flows.length > 0 ? Math.min(...flows) : avgMonthly * 0.7;
 
-  // 1. DSCR ≥ 1.25
   const pDSCR = pvAnnuity(annualCF, profitRate, tenor, 1.25);
-  // 2. Debt/EBITDA ≤ 3.5× (SAMA standard)
   const pDebtEBITDA = Math.max(0, 3.5 * Math.max(0, ebit) - fd.totalDebt);
-  // 3. D/E ≤ 2.0× (SAMA standard)
   const negativeEquity = fd.equity <= 0;
   const pDE = negativeEquity ? 0 : Math.max(0, 2.0 * fd.equity - fd.totalDebt);
-  // 4. ICR ≥ 2.0
   const existingInt = (fd.interestExpense ?? 0) > 0 ? fd.interestExpense! : fd.totalDebt * (profitRate / 100);
   const availInt = Math.max(0, ebit / 2.0 - existingInt);
   const pICR = profitRate > 0 ? Math.max(0, availInt / (profitRate / 100)) : pDSCR;
@@ -101,14 +138,7 @@ function buildConstraints(
   const vals = [pDSCR, pDebtEBITDA, pDE, pICR];
   const minVal = Math.min(...vals);
   const bindIdx = vals.indexOf(minVal);
-
   const stressedCapacity = pvAnnuity(minMonthlyCF * 12, profitRate, tenor, 1.25);
-
-  // Dynamic X-axis: highest ceiling × 1.1, floor at 5M
-  const positiveVals = vals.filter(v => v > 0);
-  const chartMax = positiveVals.length > 0
-    ? Math.max(Math.max(...positiveVals) * 1.1, 5_000_000)
-    : 5_000_000;
 
   const constraints: Constraint[] = [
     { key: 'DSCR',        label: 'DSCR',        sublabel: '≥ 1.25×', value: pDSCR,       binds: bindIdx === 0 },
@@ -116,8 +146,7 @@ function buildConstraints(
     { key: 'D/E',         label: 'D/E',          sublabel: '≤ 2.0×',  value: pDE,         binds: bindIdx === 2 },
     { key: 'ICR',         label: 'ICR',          sublabel: '≥ 2.0×',  value: pICR,        binds: bindIdx === 3 },
   ];
-
-  return { constraints, maxLoan: Math.max(0, minVal), stressedCapacity, negativeEquity, chartMax };
+  return { constraints, maxLoan: Math.max(0, minVal), stressedCapacity, negativeEquity };
 }
 
 // ─── Constraint Bar Row ───────────────────────────────────────────────────────
@@ -126,12 +155,10 @@ function ConstraintBar({ c, chartMax, isUpdating }: { c: Constraint; chartMax: n
   const pct = chartMax > 0 ? Math.min(100, (c.value / chartMax) * 100) : 0;
   return (
     <div className="bg-slate-900 rounded-xl px-5 py-3 flex items-center gap-3">
-      {/* Label */}
       <div className="w-28 flex-shrink-0">
         <p className={`text-xs font-bold leading-tight ${c.binds ? 'text-rose-300' : 'text-slate-300'}`}>{c.label}</p>
         <p className={`text-[10px] font-semibold ${c.binds ? 'text-rose-500' : 'text-slate-500'}`}>{c.sublabel}</p>
       </div>
-      {/* Bar track */}
       <div className="flex-1 h-8 bg-slate-700 rounded-md relative overflow-hidden">
         <div
           className={`h-full rounded-md transition-all duration-500 ease-out ${isUpdating ? 'animate-pulse' : ''} ${
@@ -139,18 +166,15 @@ function ConstraintBar({ c, chartMax, isUpdating }: { c: Constraint; chartMax: n
           }`}
           style={{ width: `${pct}%`, minWidth: c.value > 0 ? '4px' : '0' }}
         />
-        {/* Third-mark tick guides */}
         {[33.3, 66.6].map(tick => (
           <div key={tick} className="absolute top-0 h-full w-px bg-slate-600 opacity-50 pointer-events-none" style={{ left: `${tick}%` }} />
         ))}
       </div>
-      {/* Value */}
       <div className="w-24 flex-shrink-0 text-right">
         <span className={`text-xs font-bold tabular-nums ${isUpdating ? 'animate-pulse opacity-60' : ''} ${c.binds ? 'text-rose-300' : 'text-slate-300'}`}>
           {formatSAR(c.value, true)}
         </span>
       </div>
-      {/* BINDS badge */}
       <div className="w-16 flex-shrink-0">
         {c.binds && (
           <span className="inline-flex items-center px-2 py-0.5 bg-rose-900 border border-rose-700 text-rose-300 text-[10px] font-extrabold rounded-full whitespace-nowrap">
@@ -162,7 +186,7 @@ function ConstraintBar({ c, chartMax, isUpdating }: { c: Constraint; chartMax: n
   );
 }
 
-// ─── Initial-load Skeleton (mirrored layout of ConstraintBar) ─────────────────
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
 
 function BarSkeleton() {
   return (
@@ -188,15 +212,12 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
   const [tenor, setTenor] = useState(36);
   const [profitRate, setProfitRate] = useState(8.0);
 
-  // Trigger-state: false = show inactive box, true = show full card
   const [isRevealed, setIsRevealed] = useState(false);
-  // Separate first-fetch loading (full skeleton) vs subsequent updates (non-blocking pulse)
   const [isInitialLoading, setIsInitialLoading] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  const [forecastedCF, setForecastedCF] = useState<number | undefined>(undefined);
-  // Backend may return stressed_max_capacity directly; stored separately so it survives re-renders
-  const [backendStressedCapacity, setBackendStressedCapacity] = useState<number | undefined>(undefined);
+  // Authoritative loan recommendation from backend — null until first successful fetch
+  const [backendLoanRec, setBackendLoanRec] = useState<BackendLoanRec | null>(null);
   const hasFetchedOnce = useRef(false);
 
   const dTenor = useDebounce(tenor, 500);
@@ -206,16 +227,10 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
     if (!isRevealed) return;
 
     const controller = new AbortController();
-    // Only pulse values on subsequent fetches — first fetch shows skeleton instead
     if (hasFetchedOnce.current) setIsUpdating(true);
 
     (async () => {
       try {
-        const ebit = (financialData.revenue ?? 0) - (financialData.expenses ?? 0);
-        const icr =
-          financialData.interestExpense != null && financialData.interestExpense > 0
-            ? ebit / financialData.interestExpense
-            : null;
         const payload = {
           historicalCashFlows: financialData.monthlyRevenue.map(m => m.cashFlow ?? 0),
           currentAssets:      financialData.currentAssets      ?? 0,
@@ -225,35 +240,35 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
           equity:             financialData.equity              ?? 0,
           inventory:          financialData.inventory           ?? null,
           debtService:        financialData.debtService         ?? null,
+          interest_expense:   financialData.interestExpense     ?? null,
           industry,
           revenue:            financialData.revenue             ?? 0,
           expenses:           financialData.expenses            ?? 0,
           retainedEarnings:   financialData.retainedEarnings    ?? null,
-          icr,
           confidenceTier: 'standard',
-          profit_rate:  dProfitRate,
-          tenor_months: dTenor,
+          // Slider state sent as nested loan_params; profit_rate is a decimal fraction (0.08 = 8%)
+          loan_params: {
+            profit_rate:  dProfitRate / 100,
+            tenor_months: dTenor,
+          },
         };
+
         const res = await fetch(`${import.meta.env.VITE_API_URL}/api/forecast`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
           signal: controller.signal,
         });
+
         if (res.ok) {
           const json = await res.json();
-          // Sync stressed capacity from backend if the field is present
-          const stressed = json.stressed_max_capacity ?? json.stressedMaxCapacity ?? null;
-          if (stressed !== null) setBackendStressedCapacity(stressed as number);
-          // Derive average annual forecasted CF for DSCR ceiling refinement
-          const arr: any[] = json.forecastedCashflow ?? json.forecastedCashFlow ?? [];
-          if (arr.length > 0) {
-            const total = arr.reduce(
-              (s: number, f: any) => s + (f.forecastedCashFlow ?? f.forecasted_cash_flow ?? 0),
-              0,
-            );
-            setForecastedCF((total / arr.length) * 12);
+          // Primary path: backend returns a loan_recommendation object
+          const rec: BackendLoanRec | null = json.loan_recommendation ?? null;
+          if (rec) {
+            setBackendLoanRec(rec);
           }
+          // If backend does not return loan_recommendation yet, the local fallback
+          // continues to drive the display (no state update needed here).
         }
       } catch (err: any) {
         if (err.name !== 'AbortError') console.error('[LoanRecommendationCard] forecast error:', err);
@@ -267,20 +282,28 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
     return () => controller.abort();
   }, [dTenor, dProfitRate, isRevealed]);
 
-  const { constraints, maxLoan, stressedCapacity: localStressed, negativeEquity, chartMax } = buildConstraints(
-    financialData, profitRate, tenor, forecastedCF,
-  );
-  // Backend value takes precedence when available; must be ≤ maxLoan by construction
-  const displayedStressed = backendStressedCapacity !== undefined
-    ? Math.min(backendStressedCapacity, maxLoan)
+  // ── Derive display values ─────────────────────────────────────────────────
+  // negativeEquity always comes from local data (structural fact, not API-dependent)
+  const { negativeEquity, stressedCapacity: localStressed, maxLoan: localMaxLoan, constraints: localConstraints } =
+    buildConstraintsLocal(financialData, profitRate, tenor);
+
+  const displayConstraints = backendLoanRec
+    ? buildConstraintsFromBackend(backendLoanRec)
+    : localConstraints;
+  const displayMaxLoan = backendLoanRec?.base_max_capacity ?? localMaxLoan;
+  // Backend stressed_max_capacity is clamped to ≤ base_max_capacity by the server;
+  // guard client-side as well in case of stale state mismatch.
+  const displayStressed = backendLoanRec
+    ? Math.min(backendLoanRec.stressed_max_capacity, backendLoanRec.base_max_capacity)
     : localStressed;
+  const chartMax = getChartMax(displayConstraints);
 
   const handleReveal = () => {
     setIsRevealed(true);
     setIsInitialLoading(true);
   };
 
-  // ── Inactive / Initial-loading state (mirrors AI Forecast module pattern) ──
+  // ── Inactive / Initial-loading ────────────────────────────────────────────
   if (!isRevealed || isInitialLoading) {
     return (
       <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
@@ -315,11 +338,10 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
     );
   }
 
-  // ── Revealed state ────────────────────────────────────────────────────────
+  // ── Revealed ──────────────────────────────────────────────────────────────
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
 
-      {/* Negative Equity Banner */}
       {negativeEquity && (
         <div className="bg-amber-900/40 border-b border-amber-700 px-5 py-3 flex items-center gap-2.5">
           <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />
@@ -329,7 +351,7 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
         </div>
       )}
 
-      {/* ── Header ─────────────────────────────────────────────────────── */}
+      {/* Header */}
       <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-indigo-600 rounded-lg flex-shrink-0">
@@ -348,19 +370,19 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
         )}
       </div>
 
-      {/* ── Verdict ────────────────────────────────────────────────────── */}
+      {/* Verdict */}
       <div className="px-6 py-5 border-b border-slate-700">
         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
           Maximum Recommended Loan
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <span className={`text-[2.5rem] leading-none font-extrabold text-white tracking-tight ${isUpdating ? 'animate-pulse opacity-60' : ''}`}>
-            {negativeEquity ? 'Manual Review Required' : formatSAR(maxLoan)}
+            {negativeEquity ? 'Manual Review Required' : formatSAR(displayMaxLoan)}
           </span>
           {!negativeEquity && (
             <span className={`mb-0.5 flex items-center gap-1.5 px-2.5 py-1 bg-slate-700 border border-slate-600 rounded-full text-xs font-semibold text-slate-300 ${isUpdating ? 'animate-pulse opacity-60' : ''}`}>
               <TrendingDown className="h-3 w-3 text-slate-400" />
-              Stressed Capacity (Worst Month): {formatSAR(displayedStressed, true)}
+              Stressed Capacity (Worst Month): {formatSAR(displayStressed, true)}
             </span>
           )}
         </div>
@@ -370,23 +392,24 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
           {' '}over{' '}
           <span className="font-semibold text-slate-300">{tenor} months</span>
           {' '}— minimum across all four constraint ceilings.
+          {backendLoanRec && <span className="ml-1 text-indigo-500">· Backend-computed</span>}
         </p>
       </div>
 
-      {/* ── Constraint Analysis ─────────────────────────────────────────── */}
+      {/* Constraint Analysis */}
       <div className="px-6 py-5 border-b border-slate-700">
         <div className="flex items-center justify-between mb-3">
           <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Constraint Analysis</p>
           <span className="text-[10px] text-slate-500 font-medium">Scale max: {formatSAR(chartMax, true)}</span>
         </div>
         <div className="space-y-2">
-          {constraints.map(c => (
+          {displayConstraints.map(c => (
             <ConstraintBar key={c.key} c={c} chartMax={chartMax} isUpdating={isUpdating} />
           ))}
         </div>
       </div>
 
-      {/* ── Loan Parameters ─────────────────────────────────────────────── */}
+      {/* Loan Parameters */}
       <div className="p-6 space-y-4">
         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Loan Parameters</p>
 

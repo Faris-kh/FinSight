@@ -324,26 +324,20 @@ export default function FinSightApp() {
   const runStressTest = async () => {
     setIsForecasting(true);
     try {
-      // Explicitly map the payload to match the new FastAPI DES schema
-      const _ebit = (financialData.revenue ?? 0) - (financialData.expenses ?? 0);
-      const _icr = financialData.interestExpense != null && financialData.interestExpense > 0
-        ? _ebit / financialData.interestExpense
-        : null;
-
       const forecastPayload = {
         historicalCashFlows: financialData.monthlyRevenue.map(row => row.cashFlow ?? 0),
-        currentAssets: financialData.currentAssets ?? 0,
-        currentLiabilities: financialData.currentLiabilities ?? 0,
-        totalAssets: financialData.totalAssets ?? 0,
-        totalDebt: financialData.totalDebt ?? 0,
-        equity: financialData.equity ?? 0,
-        inventory: financialData.inventory ?? null,
-        debtService: financialData.debtService ?? null,
-        industry: selectedIndustry,
-        revenue: financialData.revenue ?? 0,
-        expenses: financialData.expenses ?? 0,
-        retainedEarnings: financialData.retainedEarnings ?? null,
-        icr: _icr,
+        currentAssets:       financialData.currentAssets       ?? 0,
+        currentLiabilities:  financialData.currentLiabilities  ?? 0,
+        totalAssets:         financialData.totalAssets          ?? 0,
+        totalDebt:           financialData.totalDebt            ?? 0,
+        equity:              financialData.equity               ?? 0,
+        inventory:           financialData.inventory            ?? null,
+        debtService:         financialData.debtService          ?? null,
+        interest_expense:    financialData.interestExpense      ?? null,
+        industry:            selectedIndustry,
+        revenue:             financialData.revenue              ?? 0,
+        expenses:            financialData.expenses             ?? 0,
+        retainedEarnings:    financialData.retainedEarnings     ?? null,
         confidenceTier: "standard"
       };
 
