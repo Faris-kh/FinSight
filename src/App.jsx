@@ -27,6 +27,18 @@ const industryStandards = {
     minEBITDAMargin: 8, minDSCR: 1.20, minCurrentRatio: 1.2,
     maxDebtEquity: 2.0, minROA: 4, minQuickRatio: 0.8, minICR: 2.0
   },
+  Manufacturing: {
+    minEBITDAMargin: 15, minDSCR: 1.25, minCurrentRatio: 1.5,
+    maxDebtEquity: 2.5, minROA: 5, minQuickRatio: 0.8, minICR: 2.5
+  },
+  Tourism: {
+    minEBITDAMargin: 25, minDSCR: 1.35, minCurrentRatio: 1.1,
+    maxDebtEquity: 3.0, minROA: 6, minQuickRatio: 0.9, minICR: 2.0
+  },
+  Healthcare: {
+    minEBITDAMargin: 20, minDSCR: 1.20, minCurrentRatio: 1.5,
+    maxDebtEquity: 2.0, minROA: 10, minQuickRatio: 1.2, minICR: 3.0
+  },
   Default: {
     minEBITDAMargin: 10, minDSCR: 1.25, minCurrentRatio: 1.2,
     maxDebtEquity: 1.5, minROA: 5, minQuickRatio: 0.8, minICR: 2.0
@@ -1282,7 +1294,7 @@ export default function FinSightApp() {
                 <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">SME Industry</label>
                 <select value={selectedIndustry} onChange={(e) => setSelectedIndustry(e.target.value)} className="px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 font-medium focus:ring-2 focus:ring-indigo-500 outline-none">
                   <option value="" disabled>Select an industry</option>
-                  {['SaaS', 'Retail', 'Construction', 'Logistics'].map(industry => (<option key={industry} value={industry}>{industry}</option>))}
+                  {['SaaS', 'Retail', 'Construction', 'Logistics', 'Manufacturing', 'Tourism', 'Healthcare'].map(industry => (<option key={industry} value={industry}>{industry}</option>))}
                 </select>
               </div>
               {selectedIndustry && (

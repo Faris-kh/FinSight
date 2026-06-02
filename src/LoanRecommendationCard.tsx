@@ -303,8 +303,10 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
   const chartMax = getChartMax(displayConstraints);
 
   // !(x > 0) catches 0, NaN, null, and undefined — all signal an unusable capacity figure
+  // stressed_max_capacity === 0 means forecast predicts cash flow burn even if base capacity is positive
   const isDeclined =
     !(displayMaxLoan > 0) ||
+    (backendLoanRec != null && backendLoanRec.stressed_max_capacity === 0) ||
     (backendLoanRec?.status ?? '').includes('NOT_RECOMMENDED');
 
   const handleReveal = () => {

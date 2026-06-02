@@ -1,6 +1,6 @@
 // API contract types for POST /api/computeAssessment
 
-export type Industry = 'Construction' | 'Logistics' | 'Retail' | 'SaaS';
+export type Industry = 'Construction' | 'Logistics' | 'Retail' | 'SaaS' | 'Manufacturing' | 'Tourism' | 'Healthcare';
 
 export interface ComputeAssessmentRequest {
   // Core income-statement and balance-sheet fields
