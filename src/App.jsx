@@ -341,6 +341,7 @@ export default function FinSightApp() {
         confidenceTier: "standard"
       };
 
+      console.log('[runStressTest] interest_expense →', forecastPayload.interest_expense);
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/forecast`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -361,14 +362,32 @@ export default function FinSightApp() {
 
       const rawForecastResponse = await response.json();
 
-      // 1. Safely extract the array from inside the new FastAPI JSON object
-      const forecastArray = rawForecastResponse.forecastedCashflow || rawForecastResponse.forecastedCashFlow || [];
+      // Accept both new (forecast_ratios) and legacy (forecastedCashflow/Flow) array shapes
+      const forecastArray = rawForecastResponse.forecast_ratios
+        || rawForecastResponse.forecastedCashflow
+        || rawForecastResponse.forecastedCashFlow
+        || [];
 
       if (!forecastArray.length) {
         alert('Forecast error: backend returned no 6-month forecast data.');
         setIsForecasting(false);
         return;
       }
+
+      // Normalise every entry to camelCase once so all downstream reads are consistent.
+      // probabilityOfDefault is mapped here — this is the value read by the slider PoD gauge
+      // at every forecast month index. Without this, snake_case fields from the backend
+      // would silently resolve to undefined and the gauge would always show the static fallback.
+      const mappedForecast = forecastArray.map(d => ({
+        month:                d.month,
+        forecastedCashFlow:   d.forecastedCashFlow  ?? d.forecasted_cash_flow  ?? 0,
+        upperBound:           d.upperBound          ?? d.upper_bound           ?? null,
+        lowerBound:           d.lowerBound          ?? d.lower_bound           ?? 0,
+        dscr:                 d.dscr                ?? null,
+        quickRatio:           d.quickRatio          ?? d.quick_ratio           ?? null,
+        currentRatio:         d.currentRatio        ?? d.current_ratio         ?? null,
+        probabilityOfDefault: d.probabilityOfDefault ?? d.probability_of_default ?? null,
+      }));
 
       // Anchor: insert the last historical point as the first forecast point
       // so both chart lines connect at the boundary without a visual gap
@@ -383,35 +402,34 @@ export default function FinSightApp() {
           upperBound:         lastHistorical.cashFlow,
           lowerBound:         lastHistorical.cashFlow,
         },
-        ...forecastArray.map(d => ({
+        ...mappedForecast.map(d => ({
           month:              d.month,
-          // Accept camelCase or snake_case from backend
-          forecastedCashFlow: d.forecastedCashFlow ?? d.forecasted_cash_flow ?? 0,
-          upperBound:         d.upperBound ?? d.upper_bound,
-          lowerBound:         d.lowerBound ?? d.lower_bound ?? 0,
+          forecastedCashFlow: d.forecastedCashFlow,
+          upperBound:         d.upperBound,
+          lowerBound:         d.lowerBound,
           dscr:               d.dscr,
           quickRatio:         d.quickRatio,
-          currentRatio:       d.currentRatio
+          currentRatio:       d.currentRatio,
         }))
       ];
 
-      const total   = forecastArray.reduce((sum, f) => sum + (f.forecastedCashFlow ?? f.forecasted_cash_flow ?? 0), 0);
-      const avg     = Math.round(total / forecastArray.length);
-      const avgConf = 80; // Hardcoded fallback since we removed it from the math loop
-      const first   = forecastArray[0].forecastedCashFlow ?? forecastArray[0].forecasted_cash_flow ?? 0;
-      const last    = forecastArray[forecastArray.length - 1].forecastedCashFlow ?? forecastArray[forecastArray.length - 1].forecasted_cash_flow ?? 0;
-      const change  = (last - first) / Math.abs(first);
+      const total   = mappedForecast.reduce((sum, f) => sum + f.forecastedCashFlow, 0);
+      const avg     = Math.round(total / mappedForecast.length);
+      const avgConf = 80;
+      const first   = mappedForecast[0].forecastedCashFlow;
+      const last    = mappedForecast[mappedForecast.length - 1].forecastedCashFlow;
+      const change  = (last - first) / Math.abs(first || 1);
 
       // Negative average overrides trend direction regardless of slope
       let trend;
-      if (avg < 0)           trend = 'Declining';
+      if (avg < 0)            trend = 'Declining';
       else if (change > 0.03)  trend = 'Growing';
       else if (change < -0.03) trend = 'Declining';
       else                     trend = 'Stable';
 
       setForecastData({
-        combined, 
-        forecast: forecastArray, // Pass the extracted array into state
+        combined,
+        forecast: mappedForecast, // normalised — probabilityOfDefault is always camelCase here
         summary: { avgForecast: avg, totalForecast: Math.round(total), trend, confidence: avgConf }
       });
       setIsStressTestActive(true);

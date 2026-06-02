@@ -40,6 +40,7 @@ interface BackendLoanRec {
   base_max_capacity: number;
   stressed_max_capacity: number;
   binding_constraint: string; // e.g. "dscr" | "debt_ebitda" | "de" | "icr"
+  status?: string;            // e.g. "NOT_RECOMMENDED_INSUFFICIENT_EARNINGS"
   ceilings: {
     dscr?: number;
     debt_ebitda?: number;
@@ -253,6 +254,7 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
           },
         };
 
+        console.log('[LoanRecommendationCard] interest_expense →', payload.interest_expense);
         const res = await fetch(`${import.meta.env.VITE_API_URL}/api/forecast`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -297,6 +299,11 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
     ? Math.min(backendLoanRec.stressed_max_capacity, backendLoanRec.base_max_capacity)
     : localStressed;
   const chartMax = getChartMax(displayConstraints);
+
+  // Credit declined when backend explicitly signals it, or when max capacity rounds to zero
+  const isDeclined =
+    displayMaxLoan === 0 ||
+    (backendLoanRec?.status ?? '').includes('NOT_RECOMMENDED');
 
   const handleReveal = () => {
     setIsRevealed(true);
@@ -376,10 +383,10 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
           Maximum Recommended Loan
         </p>
         <div className="flex flex-wrap items-end gap-3">
-          <span className={`text-[2.5rem] leading-none font-extrabold text-white tracking-tight ${isUpdating ? 'animate-pulse opacity-60' : ''}`}>
-            {negativeEquity ? 'Manual Review Required' : formatSAR(displayMaxLoan)}
+          <span className={`text-[2.5rem] leading-none font-extrabold tracking-tight ${isUpdating ? 'animate-pulse opacity-60' : ''} ${isDeclined ? 'text-rose-400' : 'text-white'}`}>
+            {negativeEquity ? 'Manual Review Required' : isDeclined ? 'Credit Declined' : formatSAR(displayMaxLoan)}
           </span>
-          {!negativeEquity && (
+          {!negativeEquity && !isDeclined && (
             <span className={`mb-0.5 flex items-center gap-1.5 px-2.5 py-1 bg-slate-700 border border-slate-600 rounded-full text-xs font-semibold text-slate-300 ${isUpdating ? 'animate-pulse opacity-60' : ''}`}>
               <TrendingDown className="h-3 w-3 text-slate-400" />
               Stressed Capacity (Worst Month): {formatSAR(displayStressed, true)}
@@ -396,17 +403,34 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
         </p>
       </div>
 
-      {/* Constraint Analysis */}
+      {/* Constraint Analysis — hidden when credit is declined */}
       <div className="px-6 py-5 border-b border-slate-700">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Constraint Analysis</p>
-          <span className="text-[10px] text-slate-500 font-medium">Scale max: {formatSAR(chartMax, true)}</span>
-        </div>
-        <div className="space-y-2">
-          {displayConstraints.map(c => (
-            <ConstraintBar key={c.key} c={c} chartMax={chartMax} isUpdating={isUpdating} />
-          ))}
-        </div>
+        {isDeclined ? (
+          <div className="flex items-start gap-3 bg-rose-950 border border-rose-800 rounded-xl px-5 py-4">
+            <AlertTriangle className="h-5 w-5 text-rose-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-bold text-rose-300 mb-1">Credit Declined</p>
+              <p className="text-xs text-rose-400 leading-relaxed">
+                Projected cash flow burn or negative earnings detected. Insufficient debt-servicing capacity.
+              </p>
+              {backendLoanRec?.status && (
+                <p className="text-[10px] text-rose-600 mt-2 font-mono">{backendLoanRec.status}</p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Constraint Analysis</p>
+              <span className="text-[10px] text-slate-500 font-medium">Scale max: {formatSAR(chartMax, true)}</span>
+            </div>
+            <div className="space-y-2">
+              {displayConstraints.map(c => (
+                <ConstraintBar key={c.key} c={c} chartMax={chartMax} isUpdating={isUpdating} />
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Loan Parameters */}
