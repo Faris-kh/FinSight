@@ -133,6 +133,7 @@ export function processDemoDataset(rows, companyName, profileKey) {
   const currentAssets      = lastRow.Current_Assets;
   const currentLiabilities = lastRow.Current_Liabilities;
   const totalAssets        = lastRow.Total_Assets;
+  const totalLiabilities   = lastRow.Total_Liabilities;
   const totalDebt          = lastRow.Total_Debt;
   const equity             = lastRow.Equity;
 
@@ -145,6 +146,7 @@ export function processDemoDataset(rows, companyName, profileKey) {
     currentAssets:      Math.round(currentAssets),
     currentLiabilities: Math.round(currentLiabilities),
     totalAssets:        Math.round(totalAssets),
+    totalLiabilities:   Math.round(totalLiabilities),
     totalDebt:          Math.round(totalDebt),
     equity:             Math.round(equity),
     cashFlow:           Math.round(sumCashFlow * annualizationFactor),

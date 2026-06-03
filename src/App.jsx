@@ -69,7 +69,7 @@ export default function FinSightApp() {
   const [fieldMappings, setFieldMappings] = useState({
     companyName: '', revenue: '', expenses: '',
     currentAssets: '', currentLiabilities: '',
-    totalAssets: '', totalDebt: '', equity: '', cashFlow: '',
+    totalAssets: '', totalLiabilities: '', totalDebt: '', equity: '', cashFlow: '',
     inventory: '', interestExpense: '', debtService: ''
   });
   const [rawFileData, setRawFileData] = useState(null); // original parsed CSV rows, used for trend charts
@@ -77,7 +77,7 @@ export default function FinSightApp() {
     companyName: '', revenue: '', expenses: '',
     currentAssets: '', currentLiabilities: '',
     totalAssets: '', totalDebt: '', equity: '', cashFlow: '',
-    inventory: null, interestExpense: null, debtService: null
+    inventory: null, interestExpense: null, debtService: null, totalLiabilities: null
   });
   const [portfolio, setPortfolio] = useState([]); // assessment history, saved on every UC5 run
   const [portfolioViewMeta, setPortfolioViewMeta] = useState(null); // set when opening a saved report from portfolio
@@ -188,7 +188,7 @@ export default function FinSightApp() {
     const mappings = {
       companyName: '', revenue: '', expenses: '',
       currentAssets: '', currentLiabilities: '',
-      totalAssets: '', totalDebt: '', equity: '', cashFlow: '',
+      totalAssets: '', totalLiabilities: '', totalDebt: '', equity: '', cashFlow: '',
       inventory: '', interestExpense: '', debtService: ''
     };
     const matchRules = [
@@ -196,7 +196,9 @@ export default function FinSightApp() {
       { field: 'currentLiabilities', keywords: ['current_liabilities', 'current_liab', 'curr_liab', 'current_debt'] },
       { field: 'currentAssets',      keywords: ['current_assets', 'current_asset', 'curr_assets'] },
       { field: 'totalAssets',        keywords: ['total_assets', 'total_asset', 'totalassets'] },
-      { field: 'totalDebt',          keywords: ['total_debt', 'total_liabilities', 'total_liab', 'long_term_debt'] },
+      // totalLiabilities must run before totalDebt — 'total_liabilities' now maps to the correct field
+      { field: 'totalLiabilities',   keywords: ['total_liabilities', 'total_liab', 'liabilities'] },
+      { field: 'totalDebt',          keywords: ['total_debt', 'long_term_debt'] },
       { field: 'revenue',            keywords: ['revenue', 'sales', 'turnover', 'total_income'] },
       { field: 'expenses',           keywords: ['expenses', 'expense', 'total_cost', 'cogs', 'operating_expenses'] },
       { field: 'equity',             keywords: ['equity', 'shareholders_equity', 'shareholder_equity', 'capital'] },
@@ -302,6 +304,7 @@ export default function FinSightApp() {
     let currentAssets      = getLatestMappedNum('currentAssets');
     let currentLiabilities = getLatestMappedNum('currentLiabilities');
     let totalAssets        = getLatestMappedNum('totalAssets');
+    let totalLiabilities   = getLatestMappedNum('totalLiabilities');
     let totalDebt          = getLatestMappedNum('totalDebt');
     let equity             = getLatestMappedNum('equity');
 
@@ -351,6 +354,7 @@ export default function FinSightApp() {
       totalDebt,
       equity,
       cashFlow:           annualizedCashFlow,
+      totalLiabilities,
       inventory:          inventoryVal,
       interestExpense:    interestExpenseSum,
       debtService:        debtServiceSum,
@@ -373,6 +377,7 @@ export default function FinSightApp() {
         totalAssets:         financialData.totalAssets          ?? null,
         totalDebt:           financialData.totalDebt            ?? null,
         equity:              financialData.equity               ?? null,
+        totalLiabilities:    financialData.totalLiabilities ?? (financialData.totalAssets - financialData.equity) ?? 0,
         inventory:           financialData.inventory            ?? null,
         debtService:         financialData.debtService          ?? null,
         interest_expense:    financialData.interestExpense      ?? null,
@@ -803,7 +808,7 @@ export default function FinSightApp() {
     setFieldMappings({
       companyName: '', revenue: 'Revenue', expenses: 'Expenses',
       currentAssets: 'Current_Assets', currentLiabilities: 'Current_Liabilities',
-      totalAssets: 'Total_Assets', totalDebt: 'Total_Debt', equity: 'Equity', cashFlow: 'Cashflow',
+      totalAssets: 'Total_Assets', totalLiabilities: 'Total_Liabilities', totalDebt: 'Total_Debt', equity: 'Equity', cashFlow: 'Cashflow',
       inventory: '', interestExpense: '', debtService: '',
     });
     setShowDemoModal(false);
@@ -826,6 +831,7 @@ export default function FinSightApp() {
     const currentAssets      = parseManualNum(manualData.currentAssets);
     const currentLiabilities = parseManualNum(manualData.currentLiabilities);
     const totalAssets        = parseManualNum(manualData.totalAssets);
+    const totalLiabilities   = parseManualNum(manualData.totalLiabilities);
     const totalDebt          = parseManualNum(manualData.totalDebt);
     const equity             = parseManualNum(manualData.equity);
     const cashFlowAnnual     = parseManualNum(manualData.cashFlow);
@@ -865,6 +871,7 @@ export default function FinSightApp() {
       currentAssets,
       currentLiabilities,
       totalAssets,
+      totalLiabilities,
       totalDebt,
       equity,
       cashFlow:           cashFlowAnnual ?? 0,
@@ -1045,6 +1052,7 @@ export default function FinSightApp() {
                     { field: 'currentAssets',      label: 'Current Assets',      placeholder: '2,000,000' },
                     { field: 'currentLiabilities', label: 'Current Liabilities', placeholder: '1,000,000' },
                     { field: 'totalAssets',        label: 'Total Assets',        placeholder: '8,000,000' },
+                    { field: 'totalLiabilities',   label: 'Total Liabilities',   placeholder: '3,500,000' },
                     { field: 'totalDebt',          label: 'Total Debt',          placeholder: '3,000,000' },
                     { field: 'equity',             label: 'Equity',              placeholder: '5,000,000' },
                     { field: 'cashFlow',           label: 'Annual Cash Flow',    placeholder: '800,000'   },
@@ -1099,6 +1107,7 @@ export default function FinSightApp() {
                     { field: 'currentAssets',      label: 'Current Assets',      required: false },
                     { field: 'currentLiabilities', label: 'Current Liabilities', required: false },
                     { field: 'totalAssets',        label: 'Total Assets',        required: false },
+                    { field: 'totalLiabilities',   label: 'Total Liabilities',   required: false },
                     { field: 'totalDebt',          label: 'Total Debt',          required: false },
                     { field: 'equity',             label: 'Equity',              required: false },
                     { field: 'cashFlow',           label: 'Cash Flow',           required: false },

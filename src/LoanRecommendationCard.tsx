@@ -15,9 +15,10 @@ export interface LoanFinancialData {
   expenses: number;
   totalDebt: number | null;
   equity: number | null;
+  totalAssets: number | null;
+  totalLiabilities?: number | null;
   currentAssets: number | null;
   currentLiabilities: number | null;
-  totalAssets: number | null;
   cashFlow: number;
   interestExpense?: number | null;
   debtService?: number | null;
@@ -250,6 +251,7 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
           totalAssets:        financialData.totalAssets         ?? null,
           totalDebt:          financialData.totalDebt           ?? null,
           equity:             financialData.equity              ?? null,
+          totalLiabilities:   financialData.totalLiabilities ?? (financialData.totalAssets - financialData.equity) ?? 0,
           inventory:          financialData.inventory           ?? null,
           debtService:        financialData.debtService         ?? null,
           interest_expense:   financialData.interestExpense     ?? null,
