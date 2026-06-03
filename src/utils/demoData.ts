@@ -153,10 +153,5 @@ export function processDemoDataset(rows, companyName, profileKey) {
     debtService:        optional?.debtService ?? null,
     historicalMonths,
     monthlyRevenue,
-    assetBreakdown: [
-      { name: 'Current Assets',    value: Math.round(currentAssets) },
-      { name: 'Fixed Assets',      value: Math.round(totalAssets * 0.55) },
-      { name: 'Intangible Assets', value: Math.max(0, Math.round(totalAssets - currentAssets - (totalAssets * 0.55))) },
-    ],
   };
 }

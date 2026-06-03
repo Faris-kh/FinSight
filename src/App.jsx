@@ -5,7 +5,6 @@ import { demoDatasets, demoProfiles, DEMO_COLUMNS, processDemoDataset } from './
 import {
   parseMappedNumeric,
   buildHistoricalMonthFromRow,
-  buildForecastRequestBody,
 } from './utils/forecastPayload';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, ComposedChart, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ReferenceLine } from 'recharts';
 
@@ -59,6 +58,7 @@ export default function FinSightApp() {
   const [isScenarioMode, setIsScenarioMode] = useState(false);    // What-If sandbox toggle
   const [scenarioData, setScenarioData] = useState(null);         // deep copy of financialData for sandbox
   const [scenarioMlData, setScenarioMlData] = useState(null);     // ML PoD/Z-Score overlay for Scenario Mode
+  const [scenarioMlError, setScenarioMlError] = useState(false);  // true when the last scenario ML call failed
   const scenarioDebounceRef = useRef(null);
   const [selectedIndustry, setSelectedIndustry] = useState('');
   const [showSettings, setShowSettings] = useState(false);
@@ -93,11 +93,43 @@ export default function FinSightApp() {
 
   // Warm up backend on app load to prevent Render free-tier cold start delay
   useEffect(() => {
-    fetch('https://finsight-backend.onrender.com/')
+    // F-12: use VITE_API_URL like all other calls — not the hardcoded production URL
+    fetch(`${import.meta.env.VITE_API_URL}/`)
       .catch(() => {}); // silent fail — just waking the server
   }, []);
 
+  // F-05 + F-02: debounced scenario ML re-fetch — fires 600 ms after each slider change,
+  // so the ML backend is called at rest, not on every tick.
+  // scenarioMlData is merged into activeResults below so PoD + Z-Score update as sliders move.
+  useEffect(() => {
+    if (!isScenarioMode || !scenarioData) return;
+    clearTimeout(scenarioDebounceRef.current);
+    scenarioDebounceRef.current = setTimeout(() => fetchScenarioMl(scenarioData), 600);
+    return () => { clearTimeout(scenarioDebounceRef.current); };
+  }, [scenarioData]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const COLORS = ['#0F172A', '#1E293B', '#334155', '#475569', '#64748B'];
+
+  // F-21: quote-aware CSV row parser — handles fields like "Al Noor, LLC" without splitting on the embedded comma
+  const parseCSVLine = (line) => {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') { current += '"'; i++; } // escaped quote
+        else { inQuotes = !inQuotes; }
+      } else if (ch === ',' && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    result.push(current.trim());
+    return result;
+  };
 
   // UC1: Parse uploaded CSV — reads headers and all rows into rawFileData state
   const handleFileChange = async (e) => {
@@ -112,8 +144,9 @@ export default function FinSightApp() {
           alert('File appears empty or invalid. Please use manual entry.');
           return;
         }
-        const headers = lines[0].split(',').map(h => h.trim().replace(/['"]/g, ''));
-        const firstDataRow = lines[1].split(',').map(d => d.trim().replace(/['"]/g, ''));
+        // F-21: use quote-aware parser so company names with commas don't corrupt column indices
+        const headers = parseCSVLine(lines[0]);
+        const firstDataRow = parseCSVLine(lines[1]);
         const rowData = {};
         headers.forEach((header, index) => {
           const value = firstDataRow[index];
@@ -124,7 +157,7 @@ export default function FinSightApp() {
           columns: headers,
           sampleRow: rowData,
           allRows: lines.slice(1).map(line => {
-            const values = line.split(',').map(d => d.trim().replace(/['"]/g, ''));
+            const values = parseCSVLine(line);
             const row = {};
             headers.forEach((h, i) => {
               const val = values[i];
@@ -323,11 +356,6 @@ export default function FinSightApp() {
       debtService:        debtServiceSum,
       historicalMonths,
       monthlyRevenue,
-      assetBreakdown: [
-        { name: 'Current Assets',   value: currentAssets ?? 0 },
-        { name: 'Fixed Assets',     value: totalAssets != null ? Math.round(totalAssets * 0.55) : 0 },
-        { name: 'Intangible Assets',value: totalAssets != null && currentAssets != null ? Math.max(0, Math.round(totalAssets - currentAssets - (totalAssets * 0.55))) : 0 }
-      ]
     });
     setShowFieldMapping(false);
   };
@@ -337,12 +365,14 @@ export default function FinSightApp() {
     setIsForecasting(true);
     try {
       const forecastPayload = {
-        historicalCashFlows: financialData.monthlyRevenue.map(row => row.cashFlow ?? 0),
-        currentAssets:       financialData.currentAssets       ?? 0,
-        currentLiabilities:  financialData.currentLiabilities  ?? 0,
-        totalAssets:         financialData.totalAssets          ?? 0,
-        totalDebt:           financialData.totalDebt            ?? 0,
-        equity:              financialData.equity               ?? 0,
+        // F-09: historicalMonths preserves null for unmapped cashFlow; monthlyRevenue carries chart estimates
+        historicalCashFlows: (financialData.historicalMonths ?? []).map(m => m.cashFlow ?? null),
+        // F-11: send null for unmapped balance-sheet fields — 0 and "not provided" must not be conflated
+        currentAssets:       financialData.currentAssets       ?? null,
+        currentLiabilities:  financialData.currentLiabilities  ?? null,
+        totalAssets:         financialData.totalAssets          ?? null,
+        totalDebt:           financialData.totalDebt            ?? null,
+        equity:              financialData.equity               ?? null,
         inventory:           financialData.inventory            ?? null,
         debtService:         financialData.debtService          ?? null,
         interest_expense:    financialData.interestExpense      ?? null,
@@ -350,7 +380,7 @@ export default function FinSightApp() {
         revenue:             financialData.revenue              ?? 0,
         expenses:            financialData.expenses             ?? 0,
         retainedEarnings:    financialData.retainedEarnings     ?? null,
-        confidenceTier: "standard"
+        // confidenceTier removed — non-functional pending Phase 6 backend decision
       };
 
       console.log('[runStressTest] interest_expense →', forecastPayload.interest_expense);
@@ -427,7 +457,6 @@ export default function FinSightApp() {
 
       const total   = mappedForecast.reduce((sum, f) => sum + f.forecastedCashFlow, 0);
       const avg     = Math.round(total / mappedForecast.length);
-      const avgConf = 80;
       const first   = mappedForecast[0].forecastedCashFlow;
       const last    = mappedForecast[mappedForecast.length - 1].forecastedCashFlow;
       const change  = (last - first) / Math.abs(first || 1);
@@ -442,7 +471,8 @@ export default function FinSightApp() {
       setForecastData({
         combined,
         forecast: mappedForecast, // normalised — probabilityOfDefault is always camelCase here
-        summary: { avgForecast: avg, totalForecast: Math.round(total), trend, confidence: avgConf }
+        // F-01: confidence omitted — a meaningful percentage cannot be derived from bounds alone without knowing the CI level
+        summary: { avgForecast: avg, totalForecast: Math.round(total), trend, confidence: null }
       });
       setIsStressTestActive(true);
       setActiveForecastMonth(1);
@@ -621,7 +651,7 @@ export default function FinSightApp() {
     const { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore } = result;
 
     const entryId = Date.now();
-    const baseSnapshot = { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore, probabilityOfDefault: null };
+    const baseSnapshot = { ratios, scores, activeRatios, droppedRatios, overallScore, decision, knockouts, strengths, weaknesses, altmanZScore, probabilityOfDefault: null, mlFailed: false };
 
     // Persist portfolio entry immediately with local data (PoD will be patched in below)
     const portfolioEntry = {
@@ -690,9 +720,23 @@ export default function FinSightApp() {
           ? { ...p, assessmentSnapshot: { ...p.assessmentSnapshot, altmanZScore: ml.altmanZScore, probabilityOfDefault: ml.probabilityOfDefault } }
           : p
         ));
+      } else {
+        // F-14: ML non-OK — retain local Z-Score but disclose fallback to user
+        console.error('[calculateAssessment] computeAssessment returned', mlRes.status);
+        setAssessmentResults(prev => prev ? { ...prev, mlFailed: true } : prev);
+        setPortfolio(prev => prev.map(p => p.id === entryId
+          ? { ...p, assessmentSnapshot: { ...p.assessmentSnapshot, mlFailed: true } }
+          : p
+        ));
       }
     } catch (err) {
-      console.error('computeAssessment ML call failed — local Z-Score retained:', err);
+      console.error('[calculateAssessment] computeAssessment network error:', err);
+      // F-14: network failure — retain local Z-Score but disclose fallback to user
+      setAssessmentResults(prev => prev ? { ...prev, mlFailed: true } : prev);
+      setPortfolio(prev => prev.map(p => p.id === entryId
+        ? { ...p, assessmentSnapshot: { ...p.assessmentSnapshot, mlFailed: true } }
+        : p
+      ));
     }
   };
 
@@ -722,10 +766,19 @@ export default function FinSightApp() {
           debtService: data.debtService ?? null,
         }),
       });
-      if (!res.ok) return;
+      // F-13: surface backend errors rather than swallowing them silently
+      if (!res.ok) {
+        console.error('[fetchScenarioMl] backend returned', res.status);
+        setScenarioMlError(true);
+        return;
+      }
       const ml = await res.json();
       setScenarioMlData({ altmanZScore: ml.altmanZScore, probabilityOfDefault: ml.probabilityOfDefault });
-    } catch {}
+      setScenarioMlError(false);
+    } catch (err) {
+      console.error('[fetchScenarioMl] network error:', err);
+      setScenarioMlError(true);
+    }
   };
 
   // Updates a single threshold field (value or weight) in state
@@ -781,17 +834,20 @@ export default function FinSightApp() {
     const debtService        = parseManualNum(manualData.debtService);
 
     months.forEach((month) => {
-      const monthCF = Math.round((monthRev - monthExp) * 0.8);
+      // F-19: chart display only — estimated for visual purposes, not sent to ML
+      const monthCFEstimate = Math.round((monthRev - monthExp) * 0.8);
       monthlyRevenue.push({
         month, revenue: monthRev, expenses: monthExp,
         profit:   monthRev - monthExp,
-        cashFlow: monthCF,
+        cashFlow: monthCFEstimate,
+        cashFlowEstimated: true,
       });
+      // F-19: historicalMonths used for ML payloads — cashFlow is null because no monthly series exists
       historicalMonths.push({
         month,
         revenue: monthRev,
         expenses: monthExp,
-        cashFlow: monthCF,
+        cashFlow: null,
         currentAssets,
         currentLiabilities,
         totalAssets,
@@ -806,22 +862,18 @@ export default function FinSightApp() {
     setFinancialData({
       companyName:        manualData.companyName || 'My Company',
       revenue, expenses,
-      currentAssets:      currentAssets ?? 0,
-      currentLiabilities: currentLiabilities ?? 0,
-      totalAssets:        totalAssets ?? 0,
-      totalDebt:          totalDebt ?? 0,
-      equity:             equity ?? 0,
+      currentAssets,
+      currentLiabilities,
+      totalAssets,
+      totalDebt,
+      equity,
       cashFlow:           cashFlowAnnual ?? 0,
       inventory,
       interestExpense,
       debtService,
+      isManualEntry:      true,
       historicalMonths,
       monthlyRevenue,
-      assetBreakdown: [
-        { name: 'Current Assets',    value: currentAssets ?? 0 },
-        { name: 'Fixed Assets',      value: totalAssets != null ? Math.round(totalAssets * 0.55) : 0 },
-        { name: 'Intangible Assets', value: totalAssets != null && currentAssets != null ? totalAssets - currentAssets - Math.round(totalAssets * 0.55) : 0 }
-      ]
     });
     setShowManualEntry(false);
   };
@@ -1132,6 +1184,7 @@ export default function FinSightApp() {
 
           {/* KPI Cards: revenue trend, profit margin, current ratio, debt/equity */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* F-18: guard against null revenue and zero first-month baseline before dividing */}
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Revenue</span>
@@ -1141,34 +1194,52 @@ export default function FinSightApp() {
                       ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'
                     : 'bg-slate-100 text-slate-500'
                 }`}>
-                  {financialData.monthlyRevenue.length > 1
+                  {financialData.monthlyRevenue.length > 1 && (financialData.monthlyRevenue[0].revenue ?? 0) > 0
                     ? `${((financialData.monthlyRevenue[financialData.monthlyRevenue.length - 1].revenue - financialData.monthlyRevenue[0].revenue) / financialData.monthlyRevenue[0].revenue * 100).toFixed(1)}%`
                     : 'N/A'}
                 </span>
               </div>
-              <p className="text-2xl font-bold text-slate-900">{(financialData.revenue / 1000000).toFixed(2)}M</p>
+              <p className="text-2xl font-bold text-slate-900">
+                {financialData.revenue != null ? `${(financialData.revenue / 1000000).toFixed(2)}M` : 'N/A'}
+              </p>
               <p className="text-xs text-slate-400 mt-1">SAR — Annualised</p>
             </div>
 
+            {/* F-18: guard against revenue = 0 before computing margin percentage */}
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Net Profit</span>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${financialData.revenue > financialData.expenses ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                  {((financialData.revenue - financialData.expenses) / financialData.revenue * 100).toFixed(1)}%
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${(financialData.revenue ?? 0) > (financialData.expenses ?? 0) ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                  {(financialData.revenue ?? 0) > 0
+                    ? `${(((financialData.revenue ?? 0) - (financialData.expenses ?? 0)) / financialData.revenue * 100).toFixed(1)}%`
+                    : 'N/A'}
                 </span>
               </div>
-              <p className="text-2xl font-bold text-slate-900">{((financialData.revenue - financialData.expenses) / 1000000).toFixed(2)}M</p>
+              <p className="text-2xl font-bold text-slate-900">
+                {financialData.revenue != null
+                  ? `${(((financialData.revenue ?? 0) - (financialData.expenses ?? 0)) / 1000000).toFixed(2)}M`
+                  : 'N/A'}
+              </p>
               <p className="text-xs text-slate-400 mt-1">SAR — Annualised</p>
             </div>
 
+            {/* F-18: guard against null or zero currentLiabilities before dividing */}
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Current Ratio</span>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${financialData.currentAssets / financialData.currentLiabilities >= thresholds.currentRatio.min ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                  {financialData.currentAssets / financialData.currentLiabilities >= thresholds.currentRatio.min ? 'Healthy' : 'Weak'}
-                </span>
+                {financialData.currentAssets != null && (financialData.currentLiabilities ?? 0) > 0 ? (
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${financialData.currentAssets / financialData.currentLiabilities >= thresholds.currentRatio.min ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                    {financialData.currentAssets / financialData.currentLiabilities >= thresholds.currentRatio.min ? 'Healthy' : 'Weak'}
+                  </span>
+                ) : (
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">N/A</span>
+                )}
               </div>
-              <p className="text-2xl font-bold text-slate-900">{(financialData.currentAssets / financialData.currentLiabilities).toFixed(2)}x</p>
+              <p className="text-2xl font-bold text-slate-900">
+                {financialData.currentAssets != null && (financialData.currentLiabilities ?? 0) > 0
+                  ? `${(financialData.currentAssets / financialData.currentLiabilities).toFixed(2)}x`
+                  : 'N/A'}
+              </p>
               <p className="text-xs text-slate-400 mt-1">Threshold: {thresholds.currentRatio.min}x</p>
             </div>
 
@@ -1338,7 +1409,7 @@ export default function FinSightApp() {
             {/* UC6 (Scenario): toggles What-If sandbox — deep copies financialData into scenarioData */}
             <button
               onClick={() => {
-                if (isScenarioMode) { setIsScenarioMode(false); setScenarioData(null); setScenarioMlData(null); }
+                if (isScenarioMode) { setIsScenarioMode(false); setScenarioData(null); setScenarioMlData(null); setScenarioMlError(false); }
                 else {
                   const copy = JSON.parse(JSON.stringify(financialData));
                   setIsScenarioMode(true);
@@ -1441,11 +1512,17 @@ export default function FinSightApp() {
               <div className="px-6 py-4 border-b border-amber-100 bg-amber-50">
                 <h2 className="text-sm font-bold text-amber-900">Scenario Controls</h2>
                 <p className="text-xs text-amber-600 mt-0.5">Drag the sliders to simulate changes. Results update instantly.</p>
+                {/* F-03: cashFlow is not silently derived from revenue − expenses (operating CF ≠ EBIT) */}
+                <p className="text-xs text-amber-500 mt-1.5">Cash flow is held at the uploaded value and adjustable via its own slider — it is not derived from revenue or expenses.</p>
               </div>
               <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {[
                   { key: 'revenue',            label: 'Annual Revenue',      min: 0, max: financialData.revenue * 3 },
                   { key: 'expenses',           label: 'Annual Expenses',     min: 0, max: financialData.revenue * 3 },
+                  // F-03: cashFlow is an explicit slider so the user can adjust it directly rather than having it silently derived
+                  { key: 'cashFlow', label: 'Annual Cash Flow',
+                    min: Math.min((financialData.cashFlow ?? 0) * 2, -(financialData.revenue ?? 0) * 0.5),
+                    max: Math.max((financialData.cashFlow ?? 0) * 2, (financialData.revenue ?? 0) * 0.5) },
                   { key: 'totalDebt',          label: 'Total Debt',          min: 0, max: financialData.totalDebt * 4 || financialData.totalAssets },
                   { key: 'currentAssets',      label: 'Current Assets',      min: 0, max: financialData.currentAssets * 4 || financialData.totalAssets },
                   { key: 'currentLiabilities', label: 'Current Liabilities', min: 0, max: financialData.currentLiabilities * 4 || financialData.totalAssets },
@@ -1469,17 +1546,14 @@ export default function FinSightApp() {
                     </div>
                     <input type="range" min={min} max={max} step={(max - min) / 200} value={scenarioData[key] ?? 0}
                       onChange={(e) => {
-                        const updated = { ...scenarioData, [key]: parseFloat(e.target.value) };
-                        updated.cashFlow = updated.revenue - updated.expenses; // cash flow mirrors revenue - expenses
-                        setScenarioData(updated);
+                        // F-03: cashFlow is not recomputed — operating CF ≠ EBIT; it stays at the uploaded value
+                        setScenarioData({ ...scenarioData, [key]: parseFloat(e.target.value) });
                       }}
                       className="w-full accent-amber-500"
                     />
                     <input type="number" value={Math.round(scenarioData[key] ?? 0)}
                       onChange={(e) => {
-                        const updated = { ...scenarioData, [key]: parseFloat(e.target.value) || 0 };
-                        updated.cashFlow = updated.revenue - updated.expenses;
-                        setScenarioData(updated);
+                        setScenarioData({ ...scenarioData, [key]: parseFloat(e.target.value) || 0 });
                       }}
                       className="mt-2 w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:ring-2 focus:ring-amber-400 outline-none"
                     />
@@ -1491,7 +1565,12 @@ export default function FinSightApp() {
 
           {/* UC6: Results display — switches between real assessmentResults and live computeAssessment(scenarioData) */}
           {(() => {
-            const activeResults = isScenarioMode && scenarioData ? computeAssessment(scenarioData) : assessmentResults;
+            const localResults = isScenarioMode && scenarioData ? computeAssessment(scenarioData) : assessmentResults;
+            // F-02: merge backend ML PoD + Z-Score into scenario results when available;
+            // scenarioMlData stays null until the first debounced fetch completes
+            const activeResults = (isScenarioMode && scenarioMlData)
+              ? { ...localResults, altmanZScore: scenarioMlData.altmanZScore, probabilityOfDefault: scenarioMlData.probabilityOfDefault }
+              : localResults;
             return (
               <>
                 {/* Knockout disqualifiers banner */}
@@ -1555,6 +1634,13 @@ export default function FinSightApp() {
                             {altman?.score !== null && altman?.score !== undefined ? Number(altman.score).toFixed(2) : '—'}
                           </p>
                           <p className="text-xs text-slate-500 mb-3">Master bankruptcy-risk health metric</p>
+                          {/* F-14: disclose local-engine fallback when ML backend was unreachable */}
+                          {activeResults.mlFailed && (
+                            <p className="text-[10px] text-amber-600 font-semibold mb-3 flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                              Local estimate — ML backend unavailable
+                            </p>
+                          )}
                           {activeResults.probabilityOfDefault != null && (
                             <div className={`flex items-center justify-between px-3 py-2 rounded-lg mb-1 ${
                               activeResults.probabilityOfDefault < 0.20 ? 'bg-emerald-100'
@@ -1640,6 +1726,13 @@ export default function FinSightApp() {
                     </div>
                   </div>
                 )}
+                {/* F-13: show when scenario ML call failed and PoD gauge cannot display */}
+                {isScenarioMode && scenarioMlError && activeResults.probabilityOfDefault == null && (
+                  <div className="bg-white p-5 rounded-xl border border-amber-200 shadow-sm flex items-center gap-2.5">
+                    <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                    <p className="text-sm text-amber-700 font-semibold">Probability of Default unavailable — ML backend error</p>
+                  </div>
+                )}
 
                 {/* Strengths, weaknesses, recommendations */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -1708,6 +1801,15 @@ export default function FinSightApp() {
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-400" />
                     Running LightGBM inference...
                   </div>
+                ) : financialData.isManualEntry ? (
+                  // F-19: forecast requires a monthly cash-flow time series; manual entry only provides annual totals
+                  <div className="flex items-start gap-3 px-4 py-3 bg-slate-700 border border-slate-600 rounded-xl text-sm text-slate-300">
+                    <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>
+                      Monthly cash flow history is required to run the forecast.
+                      Upload a CSV with monthly data to enable this feature.
+                    </span>
+                  </div>
                 ) : (
                   <button
                     onClick={runStressTest}
@@ -1737,7 +1839,13 @@ export default function FinSightApp() {
                       : forecastData.summary.trend === 'Declining' ? 'bg-rose-900 text-rose-300'
                       : 'bg-slate-700 text-slate-300'
                     }`}>{forecastData.summary.trend}</span>
-                    <span className="text-xs text-slate-400">Confidence: <span className="font-bold text-slate-300">{forecastData.summary.confidence}%</span></span>
+                    {/* F-01: show unavailable rather than a hardcoded or derived fake percentage */}
+                    <span className="text-xs text-slate-400">
+                      Confidence:{' '}
+                      <span className={`font-bold ${forecastData.summary.confidence != null ? 'text-slate-300' : 'text-slate-500'}`}>
+                        {forecastData.summary.confidence != null ? `${forecastData.summary.confidence}%` : 'unavailable'}
+                      </span>
+                    </span>
                     <button
                       onClick={() => { setIsStressTestActive(false); setForecastData(null); }}
                       className="text-xs text-slate-400 hover:text-white px-2.5 py-1 hover:bg-slate-700 rounded-lg transition-colors"
@@ -1811,34 +1919,31 @@ export default function FinSightApp() {
                   const baselineMonthlyCF = (financialData.cashFlow || 0) / 12;
                   const projectedMonthlyCF = forecastMonth?.forecastedCashFlow ?? baselineMonthlyCF;
                   const projectedAnnualCF = projectedMonthlyCF * 12;
+                  // Used only for projectedFinData / funding-score estimate below — not for covenant cards
                   const cumulativeCFDelta = (projectedMonthlyCF - baselineMonthlyCF) * activeForecastMonth;
-                  const projectedCurrentAssets = Math.max(0, financialData.currentAssets + cumulativeCFDelta);
+                  const projectedCurrentAssets = Math.max(0, (financialData.currentAssets ?? 0) + cumulativeCFDelta);
 
-                  const projectedDSCR = financialData.debtService != null && financialData.debtService > 0
-                    ? projectedAnnualCF / financialData.debtService
-                    : null;
-                  const projectedCurrentRatio = financialData.currentLiabilities > 0
-                    ? projectedCurrentAssets / financialData.currentLiabilities
-                    : null;
-                  const projectedQuickRatio = financialData.currentLiabilities > 0 && financialData.inventory != null
-                    ? Math.max(0, projectedCurrentAssets - financialData.inventory) / financialData.currentLiabilities
-                    : null;
+                  // F-04: use backend per-month ratios — proxy math removed
+                  const projectedDSCR         = forecastMonth?.dscr         ?? null;
+                  const projectedCurrentRatio = forecastMonth?.currentRatio ?? null;
+                  const projectedQuickRatio   = forecastMonth?.quickRatio   ?? null;
 
                   const standards = industryStandards[selectedIndustry] || industryStandards.Default;
                   const dscrBreach = projectedDSCR !== null && projectedDSCR < 1.0;
                   const currentRatioBreach = projectedCurrentRatio !== null && projectedCurrentRatio < standards.minCurrentRatio;
                   const quickRatioBreach = projectedQuickRatio !== null && projectedQuickRatio < standards.minQuickRatio;
 
+                  // revenue held static — back-deriving it as expenses + cashFlow is an accounting falsehood
                   const projectedFinData = {
                     ...financialData,
-                    revenue: financialData.expenses + projectedAnnualCF,
                     cashFlow: projectedAnnualCF,
                     currentAssets: projectedCurrentAssets,
                   };
                   const projectedAssessment = computeAssessment(projectedFinData);
                   const baseline = assessmentResults.ratios;
 
-                  const podValue = forecastMonth?.probabilityOfDefault ?? projectedAssessment.probabilityOfDefault;
+                  // F-07: fallback was projectedAssessment.probabilityOfDefault which buildAssessment never returns
+                  const podValue = forecastMonth?.probabilityOfDefault ?? null;
 
                   return (
                     <div className="px-6 pb-6 space-y-4">
@@ -1873,7 +1978,10 @@ export default function FinSightApp() {
                             {/* Projected Score card — full width */}
                             <div className="col-span-2 bg-slate-900 border border-slate-700 rounded-xl p-4 flex items-center gap-4">
                               <div>
-                                <p className="text-xs text-slate-400 mb-1">Projected Funding Score</p>
+                                <p className="text-xs text-slate-400 mb-1">
+                                  Projected Funding Score
+                                  <span className="ml-1.5 text-slate-600 font-normal">(estimated — cash flow projected, revenue held static)</span>
+                                </p>
                                 <p className={`text-3xl font-bold ${parseFloat(projectedAssessment.overallScore) >= 70 ? 'text-emerald-400' : parseFloat(projectedAssessment.overallScore) >= 50 ? 'text-amber-400' : 'text-rose-400'}`}>
                                   {projectedAssessment.overallScore}%
                                 </p>
@@ -1885,23 +1993,9 @@ export default function FinSightApp() {
                               }`}>{projectedAssessment.decision}</span>
                             </div>
 
-                            {/* Risk Gauge — Projected Prob. of Default */}
-                            {projectedAssessment.probabilityOfDefault != null && (
-                              <div className="col-span-2 bg-slate-900 border border-slate-700 rounded-xl p-4">
-                                <div className="flex justify-between items-center mb-2">
-                                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Prob. of Default</p>
-                                  <span className={`font-mono text-base font-bold ${projectedAssessment.probabilityOfDefault < 0.2 ? 'text-emerald-400' : projectedAssessment.probabilityOfDefault < 0.6 ? 'text-amber-400' : 'text-rose-400'}`}>
-                                    {(projectedAssessment.probabilityOfDefault * 100).toFixed(2)}%
-                                  </span>
-                                </div>
-                                <div className="w-full bg-slate-700 rounded-full h-2.5 overflow-hidden">
-                                  <div
-                                    className={`h-full transition-all duration-500 ${projectedAssessment.probabilityOfDefault < 0.2 ? 'bg-emerald-500' : projectedAssessment.probabilityOfDefault < 0.6 ? 'bg-amber-500' : 'bg-rose-500'}`}
-                                    style={{ width: `${projectedAssessment.probabilityOfDefault * 100}%` }}
-                                  />
-                                </div>
-                              </div>
-                            )}
+                            {/* F-07: second PoD gauge removed — projectedAssessment comes from the local
+                                engine (buildAssessment) which never returns probabilityOfDefault, so
+                                this block always evaluated to null and never rendered */}
 
                             {/* DSCR */}
                             <div className={`rounded-xl p-4 border ${dscrBreach ? 'bg-rose-950 border-rose-700' : 'bg-slate-900 border-slate-700'}`}>

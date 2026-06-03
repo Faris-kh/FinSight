@@ -13,17 +13,19 @@ interface MonthlyRow {
 export interface LoanFinancialData {
   revenue: number;
   expenses: number;
-  totalDebt: number;
-  equity: number;
-  currentAssets: number;
-  currentLiabilities: number;
-  totalAssets: number;
+  totalDebt: number | null;
+  equity: number | null;
+  currentAssets: number | null;
+  currentLiabilities: number | null;
+  totalAssets: number | null;
   cashFlow: number;
   interestExpense?: number | null;
   debtService?: number | null;
   inventory?: number | null;
   retainedEarnings?: number | null;
   monthlyRevenue: MonthlyRow[];
+  // null-preserving parallel to monthlyRevenue — used for ML payloads (never carries chart estimates)
+  historicalMonths?: MonthlyRow[];
   companyName?: string;
 }
 
@@ -85,12 +87,13 @@ function getChartMax(constraints: Constraint[]): number {
     : 5_000_000;
 }
 
-// Maps backend snake_case binding key → display key used in Constraint.key
+// Maps backend binding_constraint value → display key used in Constraint.key
+// F-16: backend sends short form ("dscr" | "debt_ebitda" | "de" | "icr") per BackendLoanRec interface
 const BINDING_KEY_MAP: Record<string, string> = {
-  dscr_ceiling:        'DSCR',
-  debt_ebitda_ceiling: 'Debt/EBITDA',
-  de_ceiling:          'D/E',
-  icr_ceiling:         'ICR',
+  dscr:        'DSCR',
+  debt_ebitda: 'Debt/EBITDA',
+  de:          'D/E',
+  icr:         'ICR',
 };
 
 /** Build constraint array from backend loan_recommendation object. */
@@ -131,10 +134,13 @@ function buildConstraintsLocal(
   const minMonthlyCF = flows.length > 0 ? Math.min(...flows) : avgMonthly * 0.7;
 
   const pDSCR = pvAnnuity(annualCF, profitRate, tenor, 1.25);
-  const pDebtEBITDA = Math.max(0, 3.5 * Math.max(0, ebit) - fd.totalDebt);
-  const negativeEquity = fd.equity <= 0;
-  const pDE = negativeEquity ? 0 : Math.max(0, 2.0 * fd.equity - fd.totalDebt);
-  const existingInt = (fd.interestExpense ?? 0) > 0 ? fd.interestExpense! : fd.totalDebt * (profitRate / 100);
+  // null balance-sheet fields treated as 0 by the local fallback engine only (never sent to ML)
+  const totalDebt = fd.totalDebt ?? 0;
+  const equity    = fd.equity    ?? 0;
+  const pDebtEBITDA = Math.max(0, 3.5 * Math.max(0, ebit) - totalDebt);
+  const negativeEquity = equity <= 0;
+  const pDE = negativeEquity ? 0 : Math.max(0, 2.0 * equity - totalDebt);
+  const existingInt = (fd.interestExpense ?? 0) > 0 ? fd.interestExpense! : totalDebt * (profitRate / 100);
   const availInt = Math.max(0, ebit / 2.0 - existingInt);
   const pICR = profitRate > 0 ? Math.max(0, availInt / (profitRate / 100)) : pDSCR;
 
@@ -221,6 +227,7 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
 
   // Authoritative loan recommendation from backend — null until first successful fetch
   const [backendLoanRec, setBackendLoanRec] = useState<BackendLoanRec | null>(null);
+  const [fetchError, setFetchError] = useState<boolean>(false); // F-15: true when last fetch failed
   const hasFetchedOnce = useRef(false);
 
   const dTenor = useDebounce(tenor, 500);
@@ -235,12 +242,14 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
     (async () => {
       try {
         const payload = {
-          historicalCashFlows: financialData.monthlyRevenue.map(m => m.cashFlow ?? 0),
-          currentAssets:      financialData.currentAssets      ?? 0,
-          currentLiabilities: financialData.currentLiabilities ?? 0,
-          totalAssets:        financialData.totalAssets         ?? 0,
-          totalDebt:          financialData.totalDebt           ?? 0,
-          equity:             financialData.equity              ?? 0,
+          // F-09: historicalMonths preserves null for unmapped cashFlow; monthlyRevenue carries chart estimates
+          historicalCashFlows: (financialData.historicalMonths ?? financialData.monthlyRevenue).map(m => m.cashFlow ?? null),
+          // F-11: send null for unmapped balance-sheet fields — 0 and "not provided" must not be conflated
+          currentAssets:      financialData.currentAssets      ?? null,
+          currentLiabilities: financialData.currentLiabilities ?? null,
+          totalAssets:        financialData.totalAssets         ?? null,
+          totalDebt:          financialData.totalDebt           ?? null,
+          equity:             financialData.equity              ?? null,
           inventory:          financialData.inventory           ?? null,
           debtService:        financialData.debtService         ?? null,
           interest_expense:   financialData.interestExpense     ?? null,
@@ -248,7 +257,7 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
           revenue:            financialData.revenue             ?? 0,
           expenses:           financialData.expenses            ?? 0,
           retainedEarnings:   financialData.retainedEarnings    ?? null,
-          confidenceTier: 'standard',
+          // confidenceTier removed — non-functional pending Phase 6 backend decision
           // Slider state sent as nested loan_params; profit_rate is a decimal fraction (0.08 = 8%)
           loan_params: {
             profit_rate:  dProfitRate / 100,
@@ -264,6 +273,7 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
           signal: controller.signal,
         });
 
+        setFetchError(false); // reset before each attempt
         if (res.ok) {
           const json = await res.json();
           // Primary path: backend returns a loan_recommendation object
@@ -274,9 +284,16 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
           }
           // If backend does not return loan_recommendation yet, the local fallback
           // continues to drive the display (no state update needed here).
+        } else {
+          // F-15: HTTP error — local engine will drive display; disclose to user
+          console.error('[LoanRecommendationCard] backend returned', res.status);
+          setFetchError(true);
         }
       } catch (err: any) {
-        if (err.name !== 'AbortError') console.error('[LoanRecommendationCard] forecast error:', err);
+        if (err.name !== 'AbortError') {
+          console.error('[LoanRecommendationCard] forecast error:', err);
+          setFetchError(true); // F-15
+        }
       } finally {
         hasFetchedOnce.current = true;
         setIsInitialLoading(false);
@@ -285,7 +302,8 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
     })();
 
     return () => controller.abort();
-  }, [dTenor, dProfitRate, isRevealed]);
+  // F-20: financialData added — effect re-fetches when a new company's data is loaded
+  }, [dTenor, dProfitRate, isRevealed, financialData]);
 
   // ── Derive display values ─────────────────────────────────────────────────
   // negativeEquity always comes from local data (structural fact, not API-dependent)
@@ -427,6 +445,10 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
               {' '}over{' '}
               <span className="font-semibold text-slate-300">{tenor} months</span>
               {' '}— minimum across all four constraint ceilings.
+              {/* F-15: disclose local-engine fallback when backend was unreachable */}
+              {hasFetchedOnce.current && fetchError && !backendLoanRec && (
+                <span className="ml-1 text-amber-500">· Local estimate (backend unavailable)</span>
+              )}
               {backendLoanRec && <span className="ml-1 text-indigo-500">· Backend-computed</span>}
             </p>
           </div>
