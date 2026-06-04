@@ -162,11 +162,11 @@ export default function LandingPage() {
             <h2 className="text-xl font-bold text-slate-900 mb-6">What FinSight does</h2>
             <div className="space-y-4">
               {[
-                { icon: TrendingUp,  title: '5-Ratio Scoring Engine',    desc: 'Current Ratio, D/E, Profit Margin, ROA, and DSCR — all configurable per institution.' },
-                { icon: Brain,       title: 'ML Cash Flow Forecasting',  desc: 'LightGBM model projects 6-month cash flow with confidence bands.' },
-                { icon: BarChart3,   title: 'Portfolio History',         desc: 'Every assessed company is saved with full ratio breakdowns.' },
-                { icon: Building2,   title: 'Industry Benchmarks',       desc: 'Dynamic thresholds for SaaS, Retail, Construction, and Logistics.' },
-                { icon: CheckCircle, title: 'Knockout Disqualifiers',    desc: 'Hard rules automatically reject insolvent or cash-flow-negative applicants.' },
+                { icon: TrendingUp,  title: '7-Ratio Scoring Engine',    desc: 'Current Ratio, D/E, EBITDA Margin, ROA, DSCR, Quick Ratio, and ICR — configurable weights with SAMA-aligned benchmarks across 7 sectors.' },
+                { icon: Brain,       title: 'DES Cash Flow Forecast',    desc: 'Double Exponential Smoothing projects a 6-month cash flow horizon with adaptive confidence bands. LightGBM classifies probability of default for each forecast month.' },
+                { icon: BarChart3,   title: 'Portfolio History',         desc: 'Every assessed SME is saved with full ratio breakdowns, Altman Z″-Score, and ML-computed probability of default.' },
+                { icon: Building2,   title: 'Industry Benchmarks',       desc: 'Benchmark thresholds calibrated to 7 Saudi sectors: SaaS, Retail, Construction, Logistics, Manufacturing, Tourism, and Healthcare.' },
+                { icon: CheckCircle, title: 'Knockout Disqualifiers',    desc: 'Hard rules flag negative equity, critical liquidity failure, negative cash flow with outstanding debt, and earnings that cannot cover interest payments.' },
               ].map(({ icon: Icon, title, desc }, idx) => (
                 <div key={idx} className="flex items-start gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl">
                   <div className="p-2 bg-indigo-50 border border-indigo-100 rounded-lg mt-0.5">

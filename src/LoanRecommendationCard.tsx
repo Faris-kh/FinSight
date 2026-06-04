@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AlertTriangle, RefreshCw, TrendingDown, DollarSign } from 'lucide-react';
+import { getHistoryConfidenceTier } from './utils/forecastPayload';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -245,6 +246,7 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
         const payload = {
           // F-09: historicalMonths preserves null for unmapped cashFlow; monthlyRevenue carries chart estimates
           historicalCashFlows: (financialData.historicalMonths ?? financialData.monthlyRevenue).map(m => m.cashFlow ?? null),
+          confidenceTier: getHistoryConfidenceTier(financialData.historicalMonths),
           // F-11: send null for unmapped balance-sheet fields — 0 and "not provided" must not be conflated
           currentAssets:      financialData.currentAssets      ?? null,
           currentLiabilities: financialData.currentLiabilities ?? null,
@@ -259,7 +261,6 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
           revenue:            financialData.revenue             ?? 0,
           expenses:           financialData.expenses            ?? 0,
           retainedEarnings:   financialData.retainedEarnings    ?? null,
-          // confidenceTier removed — non-functional pending Phase 6 backend decision
           // Slider state sent as nested loan_params; profit_rate is a decimal fraction (0.08 = 8%)
           loan_params: {
             profit_rate:  dProfitRate / 100,

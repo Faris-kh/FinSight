@@ -35,6 +35,20 @@ export function buildHistoricalMonthFromRow(row, fieldMappings, monthLabel) {
   };
 }
 
+/**
+ * Compute forecast confidence tier from months of genuine (non-null) cash flow history.
+ * Only real values count — synthetic or estimated months (cashFlow === null) are excluded.
+ * Thresholds: ≥24 months → "narrow", 12–23 → "standard", <12 → "wide".
+ * Defaults to "standard" if the array is absent or malformed.
+ */
+export function getHistoryConfidenceTier(historicalMonths) {
+  if (!Array.isArray(historicalMonths)) return 'standard';
+  const realMonths = historicalMonths.filter(m => m != null && m.cashFlow != null).length;
+  if (realMonths >= 24) return 'narrow';
+  if (realMonths >= 12) return 'standard';
+  return 'wide';
+}
+
 // F-08: buildForecastRequestBody and its helpers (countValidFinancialFields, getConfidenceTier,
 // normalizeHistoricalTo12Months, EMPTY_MONTH) were removed. The function returned a different
 // API shape (monthly `data` array) from what /api/forecast actually expects (historicalCashFlows

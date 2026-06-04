@@ -5,6 +5,7 @@ import { demoDatasets, demoProfiles, DEMO_COLUMNS, processDemoDataset } from './
 import {
   parseMappedNumeric,
   buildHistoricalMonthFromRow,
+  getHistoryConfidenceTier,
 } from './utils/forecastPayload';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, ComposedChart, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ReferenceLine } from 'recharts';
 
@@ -368,6 +369,7 @@ export default function FinSightApp() {
   const runStressTest = async () => {
     setIsForecasting(true);
     try {
+      const confidenceTier = getHistoryConfidenceTier(financialData.historicalMonths);
       const forecastPayload = {
         // F-09: historicalMonths preserves null for unmapped cashFlow; monthlyRevenue carries chart estimates
         historicalCashFlows: (financialData.historicalMonths ?? []).map(m => m.cashFlow ?? null),
@@ -385,7 +387,7 @@ export default function FinSightApp() {
         revenue:             financialData.revenue              ?? 0,
         expenses:            financialData.expenses             ?? 0,
         retainedEarnings:    financialData.retainedEarnings     ?? null,
-        // confidenceTier removed — non-functional pending Phase 6 backend decision
+        confidenceTier,
       };
 
       console.log('[runStressTest] interest_expense →', forecastPayload.interest_expense);
@@ -476,8 +478,7 @@ export default function FinSightApp() {
       setForecastData({
         combined,
         forecast: mappedForecast, // normalised — probabilityOfDefault is always camelCase here
-        // F-01: confidence omitted — a meaningful percentage cannot be derived from bounds alone without knowing the CI level
-        summary: { avgForecast: avg, totalForecast: Math.round(total), trend, confidence: null }
+        summary: { avgForecast: avg, totalForecast: Math.round(total), trend, confidenceTier }
       });
       setIsStressTestActive(true);
       setActiveForecastMonth(1);
@@ -1848,11 +1849,18 @@ export default function FinSightApp() {
                       : forecastData.summary.trend === 'Declining' ? 'bg-rose-900 text-rose-300'
                       : 'bg-slate-700 text-slate-300'
                     }`}>{forecastData.summary.trend}</span>
-                    {/* F-01: show unavailable rather than a hardcoded or derived fake percentage */}
                     <span className="text-xs text-slate-400">
-                      Confidence:{' '}
-                      <span className={`font-bold ${forecastData.summary.confidence != null ? 'text-slate-300' : 'text-slate-500'}`}>
-                        {forecastData.summary.confidence != null ? `${forecastData.summary.confidence}%` : 'unavailable'}
+                      Forecast confidence:{' '}
+                      <span className={`font-bold ${
+                        forecastData.summary.confidenceTier === 'narrow'   ? 'text-emerald-400'
+                        : forecastData.summary.confidenceTier === 'wide'   ? 'text-amber-400'
+                        : forecastData.summary.confidenceTier              ? 'text-slate-300'
+                        : 'text-slate-500'
+                      }`}>
+                        {forecastData.summary.confidenceTier === 'narrow'   ? 'High (24+ months of history)'
+                         : forecastData.summary.confidenceTier === 'standard' ? 'Moderate (12–23 months)'
+                         : forecastData.summary.confidenceTier === 'wide'   ? 'Low (under 12 months)'
+                         : 'unavailable'}
                       </span>
                     </span>
                     <button
