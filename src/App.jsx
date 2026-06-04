@@ -475,10 +475,14 @@ export default function FinSightApp() {
       else if (change < -0.03) trend = 'Declining';
       else                     trend = 'Stable';
 
+      const forecastMethod = rawForecastResponse.forecast_method ?? rawForecastResponse.forecastMethod ?? null;
+      const arimaFellBack  = rawForecastResponse.ARIMA_FAILED_FELL_BACK_TO_DES === true
+                          || rawForecastResponse.arima_failed_fell_back_to_des === true;
+
       setForecastData({
         combined,
         forecast: mappedForecast, // normalised — probabilityOfDefault is always camelCase here
-        summary: { avgForecast: avg, totalForecast: Math.round(total), trend, confidenceTier }
+        summary: { avgForecast: avg, totalForecast: Math.round(total), trend, confidenceTier, forecastMethod, arimaFellBack }
       });
       setIsStressTestActive(true);
       setActiveForecastMonth(1);
@@ -1840,7 +1844,12 @@ export default function FinSightApp() {
                     </div>
                     <div>
                       <h2 className="text-sm font-bold text-white">Predictive Risk & Covenant Stress Test</h2>
-                      <p className="text-xs text-slate-400">Double Exponential Smoothing (DES) 6-month projection — move slider to project covenant impact</p>
+                      <p className="text-xs text-slate-400">
+                        {forecastData.summary.forecastMethod === 'ARIMA' ? 'ARIMA' : 'Exponential Smoothing'} 6-month projection — move slider to project covenant impact
+                      </p>
+                      {forecastData.summary.arimaFellBack && (
+                        <p className="text-xs text-amber-500 mt-0.5">· Advanced model unavailable for this data; used Exponential Smoothing instead.</p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -1863,6 +1872,22 @@ export default function FinSightApp() {
                          : 'unavailable'}
                       </span>
                     </span>
+                    {forecastData.summary.forecastMethod && (() => {
+                      const histCount = (financialData?.monthlyRevenue ?? []).filter(m => m?.cashFlow != null).length;
+                      const label = forecastData.summary.forecastMethod === 'ARIMA' ? 'ARIMA' : 'Exponential Smoothing';
+                      return (
+                        <span className="text-xs text-slate-400">
+                          Model:{' '}
+                          <span className={`font-bold ${
+                            forecastData.summary.forecastMethod === 'ARIMA'            ? 'text-emerald-400'
+                            : forecastData.summary.confidenceTier === 'wide'           ? 'text-amber-400'
+                            : 'text-slate-300'
+                          }`}>
+                            {label} ({histCount} month{histCount !== 1 ? 's' : ''} of history)
+                          </span>
+                        </span>
+                      );
+                    })()}
                     <button
                       onClick={() => { setIsStressTestActive(false); setForecastData(null); }}
                       className="text-xs text-slate-400 hover:text-white px-2.5 py-1 hover:bg-slate-700 rounded-lg transition-colors"
