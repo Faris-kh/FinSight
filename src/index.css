@@ -1,3 +1,231 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ── Riyadh Design System Tokens ─────────────────────────────────────────── */
+:root {
+  --radius: 0.25rem;
+
+  /* Chrome / navy palette */
+  --navy-950: oklch(0.24 0.045 200);
+  --navy-900: oklch(0.30 0.045 200);
+  --navy-800: oklch(0.38 0.04 200);
+  --navy-700: oklch(0.48 0.035 200);
+
+  /* Surface / panel */
+  --surface:  oklch(0.96 0.022 80);
+  --panel:    oklch(0.985 0.012 80);
+  --hairline: oklch(0.86 0.025 75);
+
+  /* Ink */
+  --ink:       oklch(0.24 0.03 220);
+  --ink-muted: oklch(0.48 0.025 215);
+  --ink-faint: oklch(0.66 0.02 75);
+
+  /* Signal accent — warm gold, used sparingly */
+  --signal: oklch(0.66 0.14 65);
+
+  /* Semantic risk palette */
+  --safe:         oklch(0.55 0.13 165);
+  --safe-tint:    oklch(0.93 0.04 160);
+  --caution:      oklch(0.68 0.15 70);
+  --caution-tint: oklch(0.95 0.05 80);
+  --danger:       oklch(0.55 0.20 25);
+  --danger-tint:  oklch(0.93 0.04 25);
+
+  /* Typography */
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--surface);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* Monospace for financial numbers */
+.font-mono, code, pre {
+  font-family: var(--font-mono);
+}
+
+/* ── Riyadh Component Classes ─────────────────────────────────────────────── */
+
+/* Card / panel */
+.r-panel {
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+}
+
+/* Eyebrow label */
+.r-eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink-faint);
+}
+
+/* Risk badges — tint fill, solid text, 30%-opacity border, 2px radius, uppercase 10px */
+.r-badge-safe {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--safe-tint);
+  color: var(--safe);
+  border: 1px solid color-mix(in oklch, var(--safe) 30%, transparent);
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.r-badge-caution {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--caution-tint);
+  color: var(--caution);
+  border: 1px solid color-mix(in oklch, var(--caution) 30%, transparent);
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.r-badge-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--danger-tint);
+  color: var(--danger);
+  border: 1px solid color-mix(in oklch, var(--danger) 30%, transparent);
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.r-badge-neutral {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface);
+  color: var(--ink-muted);
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+/* Primary button */
+.r-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--navy-950);
+  color: var(--panel);
+  border: none;
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.r-btn-primary:hover { background: var(--navy-900); }
+.r-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Ghost button */
+.r-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--ink-muted);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.r-btn-ghost:hover {
+  border-color: var(--ink-muted);
+  color: var(--ink);
+  background: var(--surface);
+}
+
+/* Signal accent button (used sparingly) */
+.r-btn-signal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--signal);
+  color: var(--navy-950);
+  border: none;
+  border-radius: var(--radius);
+  font-weight: 700;
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+
+/* Table base — tight density */
+.r-table { width: 100%; border-collapse: collapse; }
+.r-table th {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink-faint);
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface);
+}
+.r-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--hairline);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--ink);
+}
+.r-table tr:last-child td { border-bottom: none; }
+
+/* Tabular nums utility */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* Range inputs */
+input[type="range"] { cursor: pointer; }
+
+/* Focus ring */
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}

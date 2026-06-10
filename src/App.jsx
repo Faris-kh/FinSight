@@ -45,6 +45,63 @@ const industryStandards = {
   }
 };
 
+// ── Persistent Navigation Bar ──────────────────────────────────────────────
+function NavBar({ currentPage, setCurrentPage, financialData, assessmentResults, portfolio }) {
+  const handleLogout = () => {
+    localStorage.removeItem('finsight_auth');
+    window.location.href = '/';
+  };
+  const user = (() => {
+    try { return JSON.parse(localStorage.getItem('finsight_current_user') || 'null'); }
+    catch { return null; }
+  })();
+  const links = [
+    { key: 'upload',     label: 'Upload',    enabled: true },
+    { key: 'dashboard',  label: 'Dashboard', enabled: !!financialData },
+    { key: 'assessment', label: 'Assessment',enabled: !!assessmentResults },
+    { key: 'portfolio',  label: 'History',   enabled: true, badge: portfolio.length > 0 ? portfolio.length : null },
+  ];
+  return (
+    <header className="sticky top-0 z-20 h-12 flex items-center px-8 gap-6 shrink-0"
+      style={{ background: 'var(--navy-950)', borderBottom: '1px solid var(--navy-800)' }}>
+      <img src="/logo.png" alt="FinSight" className="h-8 w-auto" />
+      <div className="h-4 w-px shrink-0" style={{ background: 'var(--navy-800)' }} />
+      <nav className="flex items-center gap-0.5">
+        {links.map(({ key, label, enabled, badge }) => {
+          const active = currentPage === key;
+          return (
+            <button key={key} onClick={() => enabled && setCurrentPage(key)}
+              className="relative px-3 py-1.5 text-sm font-medium rounded transition-colors"
+              style={{ color: active ? '#fff' : enabled ? 'oklch(0.75 0.015 75)' : 'oklch(0.38 0.04 200)', cursor: enabled ? 'pointer' : 'not-allowed' }}>
+              {label}
+              {badge != null && (
+                <span className="ml-1 text-[10px] font-bold tabular px-1.5 py-0.5 rounded-full"
+                  style={{ background: 'var(--navy-800)', color: 'oklch(0.66 0.02 75)' }}>
+                  {badge}
+                </span>
+              )}
+              {active && (
+                <div className="absolute bottom-0 left-2 right-2 h-0.5"
+                  style={{ background: 'var(--signal)', borderRadius: '1px' }} />
+              )}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="ml-auto flex items-center gap-4">
+        <div className="text-right leading-tight">
+          <p className="text-xs font-semibold" style={{ color: 'var(--panel)' }}>{user?.name || 'Analyst'}</p>
+          <p style={{ fontSize: '10px', color: 'oklch(0.48 0.035 200)' }}>{user?.institution || 'IMSIU'}</p>
+        </div>
+        <button onClick={handleLogout} className="text-xs font-semibold px-3 py-1.5 rounded transition-colors"
+          style={{ color: 'var(--danger)' }}>
+          Log Out
+        </button>
+      </div>
+    </header>
+  );
+}
+
 export default function FinSightApp() {
 
   // --- App state ---
@@ -109,7 +166,7 @@ export default function FinSightApp() {
     return () => { clearTimeout(scenarioDebounceRef.current); };
   }, [scenarioData]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const COLORS = ['#0F172A', '#1E293B', '#334155', '#475569', '#64748B'];
+  const COLORS = ['oklch(0.24 0.045 200)', 'oklch(0.30 0.045 200)', 'oklch(0.38 0.04 200)', 'oklch(0.48 0.035 200)', 'oklch(0.66 0.02 75)'];
 
   // F-21: quote-aware CSV row parser — handles fields like "Al Noor, LLC" without splitting on the embedded comma
   const parseCSVLine = (line) => {
@@ -928,11 +985,23 @@ export default function FinSightApp() {
     return value;
   };
 
-  const getAltmanZoneClasses = (zone) => {
+  const getAltmanZoneStyles = (zone) => {
     const z = String(zone).toLowerCase();
-    if (z === 'safe')    return { card: 'bg-emerald-50 border-emerald-200', icon: 'text-emerald-600', badge: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
-    if (z === 'distress') return { card: 'bg-rose-50 border-rose-200',       icon: 'text-rose-600',    badge: 'bg-rose-100 text-rose-700 border-rose-200' };
-    return { card: 'bg-amber-50 border-amber-200', icon: 'text-amber-600', badge: 'bg-amber-100 text-amber-700 border-amber-200' };
+    if (z === 'safe') return {
+      cardStyle: { background: 'var(--safe-tint)', border: '1px solid color-mix(in oklch, var(--safe) 20%, transparent)' },
+      iconColor: 'var(--safe)',
+      badgeCls: 'r-badge-safe',
+    };
+    if (z === 'distress') return {
+      cardStyle: { background: 'var(--danger-tint)', border: '1px solid color-mix(in oklch, var(--danger) 20%, transparent)' },
+      iconColor: 'var(--danger)',
+      badgeCls: 'r-badge-danger',
+    };
+    return {
+      cardStyle: { background: 'var(--caution-tint)', border: '1px solid color-mix(in oklch, var(--caution) 20%, transparent)' },
+      iconColor: 'var(--caution)',
+      badgeCls: 'r-badge-caution',
+    };
   };
 
   // Portfolio: restore a saved assessment and open the full report view
@@ -952,348 +1021,369 @@ export default function FinSightApp() {
 
   // UI: Upload Page
   if (currentPage === 'upload') {
+    const inputCls = 'w-full px-3 py-2.5 text-sm rounded outline-none';
+    const inputSt  = { background: 'var(--surface)', border: '1px solid var(--hairline)', color: 'var(--ink)', fontFamily: 'var(--font-sans)' };
     return (
-      <div className="min-h-screen bg-slate-50">
-        <header className="bg-slate-900 px-8 py-4 flex items-center justify-between sticky top-0 z-10 shadow-md">
-          <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="FinSight" className="h-20 w-auto" />
-          </div>
-          <div className="flex items-center gap-3">
-            {portfolio.length > 0 && (
-              <button onClick={() => setCurrentPage('portfolio')} className="flex items-center gap-2 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-sm font-medium transition-colors">
-                <Building2 className="h-4 w-4" />
-                Portfolio ({portfolio.length})
-              </button>
-            )}
-            <button onClick={() => { localStorage.removeItem('finsight_auth'); window.location.href = '/'; }} className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-semibold transition-colors">
-              Log Out
-            </button>
-          </div>
-        </header>
+      <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
+        <NavBar currentPage={currentPage} setCurrentPage={setCurrentPage}
+          financialData={financialData} assessmentResults={assessmentResults} portfolio={portfolio} />
 
-        <main className="w-full px-8 py-10 max-w-4xl mx-auto space-y-6">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">New Assessment</h1>
-            <p className="text-sm text-slate-500 mt-1">Upload an SME financial CSV, use demo data, or enter figures manually to begin.</p>
+        <main className="max-w-[1320px] mx-auto px-8 py-10">
+          <div className="mb-7">
+            <h1 className="text-2xl font-bold">New Assessment</h1>
+            <p className="text-sm mt-1" style={{ color: 'var(--ink-muted)' }}>
+              Upload an SME financial CSV, use demo data, or enter figures manually.
+            </p>
           </div>
 
-          {/* UC1: CSV upload drop zone */}
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100">
-              <h2 className="text-sm font-bold text-slate-700">Upload Financial Data</h2>
-            </div>
-            <div className="p-6">
-              <label htmlFor="file" className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 hover:border-indigo-400 rounded-xl p-12 cursor-pointer transition-colors group">
-                <div className="p-3 bg-slate-100 group-hover:bg-indigo-50 rounded-xl mb-4 transition-colors">
-                  <Upload className="h-8 w-8 text-slate-400 group-hover:text-indigo-500 transition-colors" />
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
+            {/* Left: upload + forms */}
+            <div className="space-y-5">
+
+              {/* CSV upload zone */}
+              <div className="r-panel overflow-hidden">
+                <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--hairline)' }}>
+                  <p className="r-eyebrow">Financial Data</p>
                 </div>
-                <p className="text-sm font-semibold text-slate-700 mb-1">Click to select a CSV file</p>
-                <p className="text-xs text-slate-400">Header row required. Multiple data rows supported.</p>
-                <input type="file" accept=".csv" onChange={handleFileChange} className="hidden" id="file" />
-              </label>
-              <div className="flex items-center gap-4 mt-5">
-                <div className="flex-1 h-px bg-slate-200" />
-                <span className="text-xs text-slate-400 font-medium">or</span>
-                <div className="flex-1 h-px bg-slate-200" />
-              </div>
-              <button onClick={() => setShowManualEntry(!showManualEntry)} className="w-full mt-4 px-4 py-3 border border-slate-300 hover:border-indigo-400 hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 rounded-lg text-sm font-semibold transition-colors">
-                {showManualEntry ? 'Hide Manual Entry' : 'Enter Data Manually'}
-              </button>
-              <button onClick={() => setShowDemoModal(true)} className="w-full mt-3 px-4 py-3 border border-dashed border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/50 text-slate-600 hover:text-indigo-700 rounded-lg text-sm font-semibold transition-colors">
-                Don&apos;t have financial data? Use Demo Data
-              </button>
-            </div>
-          </div>
-
-          {/* UC1 (Demo): SME profile picker modal */}
-          {showDemoModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowDemoModal(false)}>
-              <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                <div className="px-6 py-5 border-b border-slate-100 flex items-start justify-between sticky top-0 bg-white rounded-t-2xl">
-                  <div>
-                    <h2 className="text-lg font-bold text-slate-900">Choose a Demo SME Profile</h2>
-                    <p className="text-sm text-slate-500 mt-1">12 months of pre-built financials. Select a profile to load instantly — no CSV required.</p>
+                <div className="p-5">
+                  <label htmlFor="file"
+                    className="flex flex-col items-center justify-center p-12 cursor-pointer rounded transition-colors"
+                    style={{ border: '2px dashed var(--hairline)' }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--signal)'}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--hairline)'}>
+                    <div className="p-3 rounded mb-4" style={{ background: 'var(--surface)', border: '1px solid var(--hairline)' }}>
+                      <Upload className="h-7 w-7" style={{ color: 'var(--ink-faint)' }} strokeWidth={1.5} />
+                    </div>
+                    <p className="text-sm font-semibold mb-1">Click to select a CSV file</p>
+                    <p className="text-xs" style={{ color: 'var(--ink-faint)' }}>Header row required. Multiple data rows supported.</p>
+                    <input type="file" accept=".csv" onChange={handleFileChange} className="hidden" id="file" />
+                  </label>
+                  <div className="flex items-center gap-3 my-4">
+                    <div className="flex-1 h-px" style={{ background: 'var(--hairline)' }} />
+                    <span className="text-[11px] font-medium" style={{ color: 'var(--ink-faint)' }}>or</span>
+                    <div className="flex-1 h-px" style={{ background: 'var(--hairline)' }} />
                   </div>
-                  <button onClick={() => setShowDemoModal(false)} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" aria-label="Close">
-                    <X className="h-5 w-5" />
+                  <button onClick={() => setShowManualEntry(!showManualEntry)} className="r-btn-ghost w-full py-2.5 text-sm">
+                    {showManualEntry ? 'Hide Manual Entry' : 'Enter Data Manually'}
+                  </button>
+                  <button onClick={() => setShowDemoModal(true)} className="r-btn-ghost w-full py-2.5 text-sm mt-2.5">
+                    Use Demo Data
                   </button>
                 </div>
-                <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {demoProfiles.map((profile) => (
-                    <button
-                      key={profile.key}
-                      onClick={() => loadDemoProfile(profile.key)}
-                      className={`text-left border-2 rounded-xl p-5 transition-all cursor-pointer ${profile.cardClass}`}
-                    >
-                      <span className={`inline-block text-xs font-bold px-2.5 py-1 rounded-full mb-3 ${profile.badgeClass}`}>
-                        Expected Score: {profile.expectedScore}
+              </div>
+
+              {/* Manual entry form */}
+              {showManualEntry && (
+                <div className="r-panel overflow-hidden">
+                  <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--hairline)' }}>
+                    <p className="r-eyebrow">Manual Data Entry</p>
+                    <p className="text-xs mt-1" style={{ color: 'var(--ink-muted)' }}>All figures should be annual SAR values.</p>
+                  </div>
+                  <div className="p-5">
+                    <div className="grid grid-cols-2 gap-4 mb-5">
+                      <div className="col-span-2">
+                        <label className="r-eyebrow block mb-2">Company Name</label>
+                        <input type="text" value={manualData.companyName} onChange={(e) => handleManualDataChange('companyName', e.target.value)} className={inputCls} style={inputSt} placeholder="e.g. Al Noor Trading Co." />
+                      </div>
+                      {[
+                        { field: 'revenue',            label: 'Annual Revenue',      placeholder: '5,000,000' },
+                        { field: 'expenses',           label: 'Annual Expenses',     placeholder: '4,000,000' },
+                        { field: 'currentAssets',      label: 'Current Assets',      placeholder: '2,000,000' },
+                        { field: 'currentLiabilities', label: 'Current Liabilities', placeholder: '1,000,000' },
+                        { field: 'totalAssets',        label: 'Total Assets',        placeholder: '8,000,000' },
+                        { field: 'totalLiabilities',   label: 'Total Liabilities',   placeholder: '3,500,000' },
+                        { field: 'totalDebt',          label: 'Total Debt',          placeholder: '3,000,000' },
+                        { field: 'equity',             label: 'Equity',              placeholder: '5,000,000' },
+                        { field: 'cashFlow',           label: 'Annual Cash Flow',    placeholder: '800,000'   },
+                      ].map(({ field, label, placeholder }) => (
+                        <div key={field}>
+                          <label className="r-eyebrow block mb-2">{label}</label>
+                          <input type="number" value={manualData[field]} onChange={(e) => handleManualDataChange(field, e.target.value)} className={inputCls} style={inputSt} placeholder={placeholder} />
+                        </div>
+                      ))}
+                      <div className="col-span-2 pt-3" style={{ borderTop: '1px solid var(--hairline)' }}>
+                        <p className="text-xs mb-3" style={{ color: 'var(--ink-faint)' }}>Optional — enables additional ratio analysis.</p>
+                      </div>
+                      <div>
+                        <label className="r-eyebrow block mb-2">Inventory (SAR)</label>
+                        <input type="number" value={manualData.inventory ?? ''} onChange={(e) => handleManualDataChange('inventory', e.target.value === '' ? null : parseFloat(e.target.value))} className={inputCls} style={inputSt} placeholder="e.g. 150000" />
+                      </div>
+                      <div>
+                        <label className="r-eyebrow block mb-2">Annual Interest/Profit-Charge (SAR)</label>
+                        <input type="number" value={manualData.interestExpense ?? ''} onChange={(e) => handleManualDataChange('interestExpense', e.target.value === '' ? null : parseFloat(e.target.value))} className={inputCls} style={inputSt} placeholder="e.g. 50000" />
+                      </div>
+                      <div>
+                        <label className="r-eyebrow block mb-2">Annual Debt Service (SAR)</label>
+                        <input type="number" value={manualData.debtService ?? ''} onChange={(e) => handleManualDataChange('debtService', e.target.value === '' ? null : parseFloat(e.target.value))} className={inputCls} style={inputSt} placeholder="Principal + interest per year" />
+                      </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <button onClick={submitManualData} className="r-btn-primary flex-1 py-2.5 text-sm">Submit Data</button>
+                      <button onClick={() => setShowManualEntry(false)} className="r-btn-ghost px-5 py-2.5 text-sm">Cancel</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Field mapping */}
+              {showFieldMapping && (
+                <div className="r-panel overflow-hidden">
+                  <div className="px-5 py-4 flex items-start gap-3" style={{ borderBottom: '1px solid var(--hairline)', background: 'var(--surface)' }}>
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" style={{ color: 'var(--caution)' }} strokeWidth={1.5} />
+                    <div>
+                      <p className="text-sm font-bold">Map Your Data Fields</p>
+                      <p className="text-xs mt-0.5" style={{ color: 'var(--ink-muted)' }}>{detectedColumns.length} columns detected. Auto-mapping applied — review and adjust if needed.</p>
+                    </div>
+                  </div>
+                  <div className="p-5">
+                    <div className="grid grid-cols-2 gap-4 mb-5">
+                      {[
+                        { field: 'companyName',        label: 'Company Name',        required: false },
+                        { field: 'revenue',            label: 'Revenue',             required: true  },
+                        { field: 'expenses',           label: 'Expenses',            required: false },
+                        { field: 'currentAssets',      label: 'Current Assets',      required: false },
+                        { field: 'currentLiabilities', label: 'Current Liabilities', required: false },
+                        { field: 'totalAssets',        label: 'Total Assets',        required: false },
+                        { field: 'totalLiabilities',   label: 'Total Liabilities',   required: false },
+                        { field: 'totalDebt',          label: 'Total Debt',          required: false },
+                        { field: 'equity',             label: 'Equity',              required: false },
+                        { field: 'cashFlow',           label: 'Cash Flow',           required: false },
+                        { field: 'inventory',          label: 'Inventory (Optional)',        required: false, optional: true },
+                        { field: 'interestExpense',    label: 'Interest Expense (Optional)', required: false, optional: true },
+                        { field: 'debtService',        label: 'Debt Service (Optional)',     required: false, optional: true },
+                      ].map(({ field, label, required, optional }) => (
+                        <div key={field}>
+                          <label className="r-eyebrow block mb-2" style={{ color: optional ? 'var(--ink-faint)' : undefined }}>
+                            {label} {required && <span style={{ color: 'var(--danger)' }}>*</span>}
+                          </label>
+                          <select value={fieldMappings[field]} onChange={(e) => handleFieldMappingChange(field, e.target.value)} className="w-full px-3 py-2.5 text-sm rounded outline-none" style={inputSt}>
+                            <option value="">-- Not Mapped --</option>
+                            {detectedColumns.map(col => <option key={col} value={col}>{col}</option>)}
+                          </select>
+                          {fieldMappings[field] && <p className="text-[11px] mt-1 font-semibold" style={{ color: 'var(--safe)' }}>Mapped: {fieldMappings[field]}</p>}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center px-4 py-3 rounded mb-4" style={{ background: 'var(--surface)', border: '1px solid var(--hairline)' }}>
+                      <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        <span className="font-bold" style={{ color: 'var(--safe)' }}>{Object.values(fieldMappings).filter(v => v).length} mapped</span>
+                        {' '}· {Object.values(fieldMappings).filter(v => !v).length} will be estimated
                       </span>
-                      <h3 className="text-base font-bold text-slate-900 mb-2">{profile.title}</h3>
-                      <p className="text-xs text-slate-600 leading-relaxed">{profile.description}</p>
-                      <p className="text-xs font-semibold text-indigo-600 mt-4">Click to load →</p>
+                    </div>
+                    <div className="flex gap-3">
+                      <button onClick={processDataWithMappings} className="r-btn-primary flex-1 py-2.5 text-sm gap-2">
+                        <CheckCircle className="h-4 w-4" strokeWidth={1.5} />Process & Continue
+                      </button>
+                      <button onClick={() => setShowFieldMapping(false)} className="r-btn-ghost px-5 py-2.5 text-sm">Cancel</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Data ready */}
+              {financialData && !showFieldMapping && (
+                <div className="r-panel overflow-hidden">
+                  <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--hairline)', background: 'var(--safe-tint)' }}>
+                    <div className="flex items-center gap-3">
+                      <CheckCircle className="h-5 w-5 shrink-0" style={{ color: 'var(--safe)' }} strokeWidth={1.5} />
+                      <div>
+                        <p className="text-sm font-bold">{financialData.companyName}</p>
+                        <p className="text-xs" style={{ color: 'var(--safe)' }}>{uploadedFile?.name || 'Manual entry'} — data ready</p>
+                      </div>
+                    </div>
+                    <span className="r-badge-safe">Ready</span>
+                  </div>
+                  <div className="p-4">
+                    <button onClick={() => setCurrentPage('dashboard')} className="r-btn-primary w-full py-2.5 text-sm gap-2">
+                      Continue to Dashboard <ArrowRight className="h-4 w-4" strokeWidth={1.5} />
                     </button>
-                  ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
-          )}
 
-          {/* UC1: Manual entry form */}
-          {showManualEntry && (
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-100">
-                <h2 className="text-sm font-bold text-slate-700">Manual Data Entry</h2>
-                <p className="text-xs text-slate-400 mt-0.5">All figures should be annual SAR values.</p>
-              </div>
-              <div className="p-6">
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                  <div className="col-span-2">
-                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Company Name</label>
-                    <input type="text" value={manualData.companyName} onChange={(e) => handleManualDataChange('companyName', e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none placeholder-slate-400" placeholder="e.g. Al Noor Trading Co." />
-                  </div>
-                  {[
-                    { field: 'revenue',            label: 'Annual Revenue',      placeholder: '5,000,000' },
-                    { field: 'expenses',           label: 'Annual Expenses',     placeholder: '4,000,000' },
-                    { field: 'currentAssets',      label: 'Current Assets',      placeholder: '2,000,000' },
-                    { field: 'currentLiabilities', label: 'Current Liabilities', placeholder: '1,000,000' },
-                    { field: 'totalAssets',        label: 'Total Assets',        placeholder: '8,000,000' },
-                    { field: 'totalLiabilities',   label: 'Total Liabilities',   placeholder: '3,500,000' },
-                    { field: 'totalDebt',          label: 'Total Debt',          placeholder: '3,000,000' },
-                    { field: 'equity',             label: 'Equity',              placeholder: '5,000,000' },
-                    { field: 'cashFlow',           label: 'Annual Cash Flow',    placeholder: '800,000'   },
-                  ].map(({ field, label, placeholder }) => (
-                    <div key={field}>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{label}</label>
-                      <input type="number" value={manualData[field]} onChange={(e) => handleManualDataChange(field, e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none placeholder-slate-400" placeholder={placeholder} />
-                    </div>
-                  ))}
-                  <div className="col-span-2 border-t border-slate-200 pt-4 mt-2">
-                    <p className="text-xs text-slate-400 mb-3">
-                      Optional — enables additional ratio analysis. Leave blank if unavailable.
-                    </p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Inventory (SAR)</label>
-                    <input type="number" value={manualData.inventory ?? ''} onChange={(e) => handleManualDataChange('inventory', e.target.value === '' ? null : parseFloat(e.target.value))} className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none placeholder-slate-400" placeholder="e.g. 150000" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Annual Interest/Profit-Charge Expense (SAR)</label>
-                    <input type="number" value={manualData.interestExpense ?? ''} onChange={(e) => handleManualDataChange('interestExpense', e.target.value === '' ? null : parseFloat(e.target.value))} className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none placeholder-slate-400" placeholder="e.g. 50000" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Annual Debt Service (SAR)</label>
-                    <input type="number" value={manualData.debtService ?? ''} onChange={(e) => handleManualDataChange('debtService', e.target.value === '' ? null : parseFloat(e.target.value))} className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none placeholder-slate-400" placeholder="Principal + Interest payments per year" />
-                  </div>
-                </div>
-                <div className="flex gap-3">
-                  <button onClick={submitManualData} className="flex-1 bg-slate-900 hover:bg-slate-800 text-white py-3 rounded-lg text-sm font-semibold transition-colors">Submit Data</button>
-                  <button onClick={() => setShowManualEntry(false)} className="px-6 py-3 border border-slate-300 hover:bg-slate-50 text-slate-600 rounded-lg text-sm font-semibold transition-colors">Cancel</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* UC1: Field mapping — shown after CSV upload, lets user confirm/correct auto-mapped columns */}
-          {showFieldMapping && (
-            <div className="bg-white border border-indigo-200 rounded-xl shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-indigo-100 bg-indigo-50 flex items-start gap-3">
-                <AlertTriangle className="h-5 w-5 text-indigo-500 flex-shrink-0 mt-0.5" />
+            {/* Right: CSV spec panel */}
+            <div className="r-panel p-5 self-start">
+              <p className="r-eyebrow mb-4">CSV Specification</p>
+              <div className="space-y-4">
                 <div>
-                  <p className="text-sm font-bold text-indigo-900">Map Your Data Fields</p>
-                  <p className="text-xs text-indigo-600 mt-0.5">{detectedColumns.length} columns detected. Auto-mapping applied — review and adjust if needed.</p>
-                </div>
-              </div>
-              <div className="p-6">
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                  {[
-                    { field: 'companyName',        label: 'Company Name',        required: false },
-                    { field: 'revenue',            label: 'Revenue',             required: true  },
-                    { field: 'expenses',           label: 'Expenses',            required: false },
-                    { field: 'currentAssets',      label: 'Current Assets',      required: false },
-                    { field: 'currentLiabilities', label: 'Current Liabilities', required: false },
-                    { field: 'totalAssets',        label: 'Total Assets',        required: false },
-                    { field: 'totalLiabilities',   label: 'Total Liabilities',   required: false },
-                    { field: 'totalDebt',          label: 'Total Debt',          required: false },
-                    { field: 'equity',             label: 'Equity',              required: false },
-                    { field: 'cashFlow',           label: 'Cash Flow',           required: false },
-                    { field: 'inventory',          label: 'Inventory (Optional)',          required: false, optional: true },
-                    { field: 'interestExpense',    label: 'Interest Expense (Optional)',   required: false, optional: true },
-                    { field: 'debtService',        label: 'Debt Service (Optional)',       required: false, optional: true },
-                  ].map(({ field, label, required, optional }) => (
-                    <div key={field}>
-                      <label className={`block text-xs font-semibold uppercase tracking-wide mb-2 ${optional ? 'text-slate-400' : 'text-slate-500'}`}>{label} {required && <span className="text-rose-500">*</span>}</label>
-                      <select value={fieldMappings[field]} onChange={(e) => handleFieldMappingChange(field, e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none">
-                        <option value="">-- Not Mapped --</option>
-                        {detectedColumns.map(col => (<option key={col} value={col}>{col}</option>))}
-                      </select>
-                      {fieldMappings[field] && (<p className="text-xs text-emerald-600 mt-1">✓ {fieldMappings[field]}</p>)}
-                    </div>
+                  <p className="text-xs font-semibold mb-2">Required</p>
+                  {['Revenue (monthly)', 'Header row'].map(item => (
+                    <p key={item} className="flex items-center gap-2 text-xs mb-1.5" style={{ color: 'var(--ink-muted)' }}>
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0 inline-block" style={{ background: 'var(--safe)' }} />{item}
+                    </p>
                   ))}
                 </div>
-                <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 mb-5">
-                  <span className="text-xs text-slate-500">
-                    <span className="text-emerald-600 font-bold">{Object.values(fieldMappings).filter(v => v).length} mapped</span>
-                    {' '}· {Object.values(fieldMappings).filter(v => !v).length} will be estimated
-                  </span>
+                <div style={{ borderTop: '1px solid var(--hairline)', paddingTop: '12px' }}>
+                  <p className="text-xs font-semibold mb-2">Optional — additional ratios</p>
+                  {['Current Assets / Liabilities', 'Total Assets / Liabilities', 'Total Debt / Equity', 'Cash Flow', 'Inventory', 'Interest/Profit Expense', 'Debt Service'].map(item => (
+                    <p key={item} className="flex items-center gap-2 text-xs mb-1.5" style={{ color: 'var(--ink-muted)' }}>
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0 inline-block" style={{ background: 'var(--signal)' }} />{item}
+                    </p>
+                  ))}
                 </div>
-                <div className="flex gap-3">
-                  <button onClick={processDataWithMappings} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-lg text-sm font-semibold transition-colors">
-                    <CheckCircle className="h-4 w-4" />Process & Continue
-                  </button>
-                  <button onClick={() => setShowFieldMapping(false)} className="px-6 py-3 border border-slate-300 hover:bg-slate-50 text-slate-600 rounded-lg text-sm font-semibold transition-colors">Cancel</button>
+                <div style={{ borderTop: '1px solid var(--hairline)', paddingTop: '12px' }}>
+                  <p className="text-xs font-semibold mb-2">Format</p>
+                  {['Numeric values, no currency symbols', 'Multiple rows for trend analysis', 'Company name auto-detected', 'Columns auto-mapped'].map(item => (
+                    <p key={item} className="flex items-center gap-2 text-xs mb-1.5" style={{ color: 'var(--ink-muted)' }}>
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0 inline-block" style={{ background: 'var(--hairline)' }} />{item}
+                    </p>
+                  ))}
                 </div>
               </div>
             </div>
-          )}
+          </div>
+        </main>
 
-          {/* Data ready — proceed to dashboard */}
-          {financialData && !showFieldMapping && (
-            <div className="bg-white border border-emerald-200 rounded-xl shadow-sm overflow-hidden">
-              <div className="px-6 py-4 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <CheckCircle className="h-5 w-5 text-emerald-600" />
-                  <div>
-                    <p className="text-sm font-bold text-emerald-900">{financialData.companyName}</p>
-                    <p className="text-xs text-emerald-600">{uploadedFile?.name || 'Manual entry'} — data ready</p>
-                  </div>
+        {/* Demo modal */}
+        {showDemoModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'oklch(0.24 0.045 200 / 65%)' }}
+            onClick={() => setShowDemoModal(false)}>
+            <div className="r-panel overflow-hidden max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="px-6 py-5 flex items-start justify-between sticky top-0" style={{ background: 'var(--panel)', borderBottom: '1px solid var(--hairline)' }}>
+                <div>
+                  <h2 className="text-base font-bold">Demo SME Profiles</h2>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--ink-muted)' }}>12 months of pre-built financials — no CSV required.</p>
                 </div>
-                <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full">Ready</span>
-              </div>
-              <div className="p-5">
-                <button onClick={() => setCurrentPage('dashboard')} className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white py-3.5 rounded-lg text-sm font-semibold transition-colors">
-                  Continue to Dashboard <ArrowRight className="h-4 w-4" />
+                <button onClick={() => setShowDemoModal(false)} className="p-1.5 rounded" style={{ color: 'var(--ink-faint)' }}>
+                  <X className="h-5 w-5" strokeWidth={1.5} />
                 </button>
               </div>
+              <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+                {demoProfiles.map((profile) => {
+                  const sc = parseFloat(profile.expectedScore);
+                  const cardSt = sc >= 70
+                    ? { background: 'var(--safe-tint)', border: '2px solid color-mix(in oklch, var(--safe) 25%, transparent)', borderRadius: 'var(--radius)' }
+                    : sc >= 50
+                    ? { background: 'var(--caution-tint)', border: '2px solid color-mix(in oklch, var(--caution) 25%, transparent)', borderRadius: 'var(--radius)' }
+                    : { background: 'var(--danger-tint)', border: '2px solid color-mix(in oklch, var(--danger) 25%, transparent)', borderRadius: 'var(--radius)' };
+                  const bc = sc >= 70 ? 'r-badge-safe' : sc >= 50 ? 'r-badge-caution' : 'r-badge-danger';
+                  return (
+                    <button key={profile.key} onClick={() => loadDemoProfile(profile.key)}
+                      className="text-left p-5 cursor-pointer hover:opacity-90 transition-opacity" style={cardSt}>
+                      <span className={`${bc} mb-3 inline-flex`}>Score ~{profile.expectedScore}</span>
+                      <h3 className="text-sm font-bold mt-2 mb-1.5">{profile.title}</h3>
+                      <p className="text-xs leading-relaxed" style={{ color: 'var(--ink-muted)' }}>{profile.description}</p>
+                      <p className="text-xs font-semibold mt-4" style={{ color: 'var(--signal)' }}>Load profile</p>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          )}
-        </main>
+          </div>
+        )}
       </div>
     );
   }
 
-  // UI: Dashboard Page — KPI cards, UC4 forecast, revenue chart, risk radar, debt/equity trend
+  // UI: Dashboard Page — KPI cards, revenue chart, risk radar, debt/equity trend
   if (currentPage === 'dashboard') {
+    const std = industryStandards[selectedIndustry] || null;
     return (
-      <div className="min-h-screen bg-slate-50">
-        <header className="bg-slate-900 px-8 py-4 flex items-center justify-between sticky top-0 z-10 shadow-md">
-          <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="FinSight" className="h-20 w-auto" />
-            <span className="ml-4 text-slate-400 text-sm font-medium border-l border-slate-700 pl-4">{financialData.companyName}</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <button onClick={() => setCurrentPage('portfolio')} className="flex items-center gap-2 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-sm font-medium transition-colors">
-              <Building2 className="h-4 w-4" />Portfolio {portfolio.length > 0 && `(${portfolio.length})`}
-            </button>
-            <div className="w-px h-5 bg-slate-700" />
-            <button onClick={() => { setCurrentPage('upload'); setFinancialData(null); setUploadedFile(null); setAssessmentResults(null); setForecastData(null); setIsStressTestActive(false); setActiveForecastMonth(1); }} className="flex items-center gap-2 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-sm font-medium transition-colors">
-              <ArrowLeft className="h-4 w-4" />New Assessment
-            </button>
-            <button onClick={() => { localStorage.removeItem('finsight_auth'); window.location.href = '/'; }} className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-semibold transition-colors">
-              Log Out
-            </button>
-          </div>
-        </header>
+      <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
+        <NavBar currentPage={currentPage} setCurrentPage={setCurrentPage}
+          financialData={financialData} assessmentResults={assessmentResults} portfolio={portfolio} />
 
-        <main className="w-full px-8 py-6 space-y-6">
+        <main className="max-w-[1320px] mx-auto px-8 py-8 space-y-6">
 
-          {/* KPI Cards: revenue trend, profit margin, current ratio, debt/equity */}
+          {/* Page title row */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-bold">{financialData.companyName}</h1>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--ink-muted)' }}>Financial overview — select an industry to run the assessment</p>
+            </div>
+            <button onClick={() => { setCurrentPage('upload'); setFinancialData(null); setUploadedFile(null); setAssessmentResults(null); setForecastData(null); setIsStressTestActive(false); setActiveForecastMonth(1); }}
+              className="r-btn-ghost px-4 py-2 text-sm gap-2">
+              <ArrowLeft className="h-4 w-4" strokeWidth={1.5} />New Assessment
+            </button>
+          </div>
+
+          {/* KPI Cards */}
+          {/* F-18: KPI Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* F-18: guard against null revenue and zero first-month baseline before dividing */}
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
+            {/* Revenue */}
+            <div className="r-panel p-5">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Revenue</span>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                  financialData.monthlyRevenue.length > 1
-                    ? financialData.monthlyRevenue[financialData.monthlyRevenue.length - 1].revenue >= financialData.monthlyRevenue[0].revenue
-                      ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'
-                    : 'bg-slate-100 text-slate-500'
-                }`}>
-                  {financialData.monthlyRevenue.length > 1 && (financialData.monthlyRevenue[0].revenue ?? 0) > 0
-                    ? `${((financialData.monthlyRevenue[financialData.monthlyRevenue.length - 1].revenue - financialData.monthlyRevenue[0].revenue) / financialData.monthlyRevenue[0].revenue * 100).toFixed(1)}%`
-                    : 'N/A'}
-                </span>
+                <p className="r-eyebrow">Revenue</p>
+                {(() => {
+                  const rev = financialData.monthlyRevenue;
+                  if (rev.length > 1 && (rev[0].revenue ?? 0) > 0) {
+                    const pct = ((rev[rev.length-1].revenue - rev[0].revenue) / rev[0].revenue * 100).toFixed(1);
+                    const ok = parseFloat(pct) >= 0;
+                    return <span className={ok ? 'r-badge-safe' : 'r-badge-danger'}>{pct}%</span>;
+                  }
+                  return <span className="r-badge-neutral">N/A</span>;
+                })()}
               </div>
-              <p className="text-2xl font-bold text-slate-900">
-                {financialData.revenue != null ? `${(financialData.revenue / 1000000).toFixed(2)}M` : 'N/A'}
-              </p>
-              <p className="text-xs text-slate-400 mt-1">SAR — Annualised</p>
+              <p className="text-2xl font-bold tabular">{financialData.revenue != null ? `${(financialData.revenue/1e6).toFixed(2)}M` : 'N/A'}</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--ink-faint)' }}>SAR — Annualised</p>
             </div>
 
-            {/* F-18: guard against revenue = 0 before computing margin percentage */}
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
+            {/* Net Profit */}
+            <div className="r-panel p-5">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Net Profit</span>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${(financialData.revenue ?? 0) > (financialData.expenses ?? 0) ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                  {(financialData.revenue ?? 0) > 0
-                    ? `${(((financialData.revenue ?? 0) - (financialData.expenses ?? 0)) / financialData.revenue * 100).toFixed(1)}%`
-                    : 'N/A'}
-                </span>
+                <p className="r-eyebrow">Net Profit</p>
+                {(financialData.revenue ?? 0) > 0
+                  ? <span className={(financialData.revenue??0)>(financialData.expenses??0) ? 'r-badge-safe' : 'r-badge-danger'}>
+                      {(((financialData.revenue??0)-(financialData.expenses??0))/financialData.revenue*100).toFixed(1)}%
+                    </span>
+                  : <span className="r-badge-neutral">N/A</span>}
               </div>
-              <p className="text-2xl font-bold text-slate-900">
-                {financialData.revenue != null
-                  ? `${(((financialData.revenue ?? 0) - (financialData.expenses ?? 0)) / 1000000).toFixed(2)}M`
-                  : 'N/A'}
+              <p className="text-2xl font-bold tabular">
+                {financialData.revenue != null ? `${(((financialData.revenue??0)-(financialData.expenses??0))/1e6).toFixed(2)}M` : 'N/A'}
               </p>
-              <p className="text-xs text-slate-400 mt-1">SAR — Annualised</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--ink-faint)' }}>SAR — Annualised</p>
             </div>
 
-            {/* F-18: guard against null or zero currentLiabilities before dividing */}
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
+            {/* Current Ratio */}
+            <div className="r-panel p-5">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Current Ratio</span>
-                {financialData.currentAssets != null && (financialData.currentLiabilities ?? 0) > 0 ? (
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${financialData.currentAssets / financialData.currentLiabilities >= thresholds.currentRatio.min ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                    {financialData.currentAssets / financialData.currentLiabilities >= thresholds.currentRatio.min ? 'Healthy' : 'Weak'}
-                  </span>
-                ) : (
-                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">N/A</span>
-                )}
+                <p className="r-eyebrow">Current Ratio</p>
+                {financialData.currentAssets != null && (financialData.currentLiabilities??0) > 0
+                  ? <span className={financialData.currentAssets/financialData.currentLiabilities >= thresholds.currentRatio.min ? 'r-badge-safe' : 'r-badge-danger'}>
+                      {financialData.currentAssets/financialData.currentLiabilities >= thresholds.currentRatio.min ? 'Healthy' : 'Weak'}
+                    </span>
+                  : <span className="r-badge-neutral">N/A</span>}
               </div>
-              <p className="text-2xl font-bold text-slate-900">
-                {financialData.currentAssets != null && (financialData.currentLiabilities ?? 0) > 0
-                  ? `${(financialData.currentAssets / financialData.currentLiabilities).toFixed(2)}x`
-                  : 'N/A'}
+              <p className="text-2xl font-bold tabular">
+                {financialData.currentAssets != null && (financialData.currentLiabilities??0) > 0
+                  ? `${(financialData.currentAssets/financialData.currentLiabilities).toFixed(2)}x` : 'N/A'}
               </p>
-              <p className="text-xs text-slate-400 mt-1">Threshold: {thresholds.currentRatio.min}x</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--ink-faint)' }}>Min: {thresholds.currentRatio.min}x</p>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
+            {/* D/E */}
+            <div className="r-panel p-5">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Debt / Equity</span>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                  financialData.equity <= 0 ? 'bg-rose-100 text-rose-600'
-                  : financialData.totalDebt / financialData.equity <= thresholds.debtToEquity.max ? 'bg-emerald-100 text-emerald-600'
-                  : 'bg-rose-100 text-rose-600'
-                }`}>
-                  {financialData.equity <= 0 ? 'Insolvent' : financialData.totalDebt / financialData.equity <= thresholds.debtToEquity.max ? 'Acceptable' : 'High'}
+                <p className="r-eyebrow">Debt / Equity</p>
+                <span className={financialData.equity <= 0 ? 'r-badge-danger' : financialData.totalDebt/financialData.equity <= thresholds.debtToEquity.max ? 'r-badge-safe' : 'r-badge-danger'}>
+                  {financialData.equity <= 0 ? 'Insolvent' : financialData.totalDebt/financialData.equity <= thresholds.debtToEquity.max ? 'OK' : 'High'}
                 </span>
               </div>
-              <p className="text-2xl font-bold text-slate-900">{financialData.equity <= 0 ? 'N/A' : (financialData.totalDebt / financialData.equity).toFixed(2)}</p>
-              <p className="text-xs text-slate-400 mt-1">Threshold: {thresholds.debtToEquity.max}x</p>
+              <p className="text-2xl font-bold tabular">{financialData.equity <= 0 ? 'N/A' : (financialData.totalDebt/financialData.equity).toFixed(2)}</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--ink-faint)' }}>Max: {thresholds.debtToEquity.max}x</p>
             </div>
           </div>
 
-          {/* Bottom charts: revenue trend (full width), risk radar + debt/equity (side by side) */}
+          {/* Charts */}
           <div className="flex flex-col gap-5">
 
-            {/* UC3: Monthly revenue area chart — built from actual CSV rows */}
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
-              <h3 className="text-sm font-bold text-slate-700 mb-1 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-slate-500" />Monthly Revenue Performance</h3>
-              <p className="text-xs text-slate-400 mb-4">Actual revenue across all uploaded periods (SAR)</p>
+            {/* Monthly revenue area chart */}
+            <div className="r-panel p-5">
+              <div className="flex items-center gap-2 mb-1">
+                <TrendingUp className="h-4 w-4" style={{ color: 'var(--ink-faint)' }} strokeWidth={1.5} />
+                <p className="text-sm font-semibold">Monthly Revenue Performance</p>
+              </div>
+              <p className="r-eyebrow mb-4">Actual revenue across all uploaded periods (SAR)</p>
               <div className="h-48">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={financialData.monthlyRevenue}>
-                    <defs>
-                      <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#6366F1" stopOpacity={0.2}/>
-                        <stop offset="95%" stopColor="#6366F1" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                    <XAxis dataKey="month" stroke="#94A3B8" style={{ fontSize: '11px' }} />
-                    <YAxis stroke="#94A3B8" style={{ fontSize: '11px' }} tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
-                    <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #E2E8F0', borderRadius: '8px', fontSize: '12px' }} />
-                    <Area type="monotone" dataKey="revenue" stroke="#6366F1" strokeWidth={2} fill="url(#revenueGradient)" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--hairline)" />
+                    <XAxis dataKey="month" stroke="var(--ink-faint)" style={{ fontSize: '11px' }} />
+                    <YAxis stroke="var(--ink-faint)" style={{ fontSize: '11px' }} tickFormatter={(v) => v >= 1e6 ? `${(v/1e6).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
+                    <Tooltip contentStyle={{ background: 'var(--panel)', border: '1px solid var(--hairline)', borderRadius: 'var(--radius)', fontSize: '12px', color: 'var(--ink)' }} />
+                    <Area type="monotone" dataKey="revenue" stroke="var(--signal)" strokeWidth={2} fill="var(--signal)" fillOpacity={0.1} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -1301,26 +1391,25 @@ export default function FinSightApp() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
 
-              {/* UC3: Risk Radar — dynamic points from active assessment ratios (0–100 scores) */}
+              {/* Risk Radar */}
               {(() => {
                 const dashAssessment = computeAssessment(financialData);
-                const radarData = dashAssessment.activeRatios.map(r => ({
-                  metric: r.label,
-                  score: dashAssessment.scores[r.key] || 0,
-                  fullMark: 100
-                }));
+                const radarData = dashAssessment.activeRatios.map(r => ({ metric: r.label, score: dashAssessment.scores[r.key] || 0, fullMark: 100 }));
                 return (
-                  <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
-                    <h3 className="text-sm font-bold text-slate-700 mb-1 flex items-center gap-2"><BarChart3 className="h-4 w-4 text-slate-500" />Risk Radar — Health Footprint</h3>
-                    <p className="text-xs text-slate-400 mb-4">Normalised 0–100. Larger area = healthier profile.</p>
+                  <div className="r-panel p-5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <BarChart3 className="h-4 w-4" style={{ color: 'var(--ink-faint)' }} strokeWidth={1.5} />
+                      <p className="text-sm font-semibold">Risk Radar</p>
+                    </div>
+                    <p className="r-eyebrow mb-4">Health footprint — normalised 0-100</p>
                     <div className="h-56">
                       <ResponsiveContainer width="100%" height="100%">
                         <RadarChart data={radarData} margin={{ top: 10, right: 30, bottom: 10, left: 30 }}>
-                          <PolarGrid stroke="#E2E8F0" />
-                          <PolarAngleAxis dataKey="metric" tick={{ fontSize: 11, fill: '#64748B', fontWeight: 600 }} />
-                          <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fontSize: 9, fill: '#CBD5E1' }} tickCount={4} />
-                          <Radar name="Health" dataKey="score" stroke="#6366F1" fill="#6366F1" fillOpacity={0.2} strokeWidth={2} />
-                          <Tooltip formatter={(v) => [`${v.toFixed(0)} / 100`, 'Score']} contentStyle={{ backgroundColor: 'white', border: '1px solid #E2E8F0', borderRadius: '8px', fontSize: '12px' }} />
+                          <PolarGrid stroke="var(--hairline)" />
+                          <PolarAngleAxis dataKey="metric" tick={{ fontSize: 11, fill: 'var(--ink-muted)', fontWeight: 600 }} />
+                          <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fontSize: 9, fill: 'var(--ink-faint)' }} tickCount={4} />
+                          <Radar name="Health" dataKey="score" stroke="var(--signal)" fill="var(--signal)" fillOpacity={0.15} strokeWidth={2} />
+                          <Tooltip formatter={(v) => [`${v.toFixed(0)} / 100`, 'Score']} contentStyle={{ background: 'var(--panel)', border: '1px solid var(--hairline)', borderRadius: 'var(--radius)', fontSize: '12px', color: 'var(--ink)' }} />
                         </RadarChart>
                       </ResponsiveContainer>
                     </div>
@@ -1328,42 +1417,47 @@ export default function FinSightApp() {
                 );
               })()}
 
-              {/* UC3: Debt vs Equity trend — pulled directly from raw CSV rows per period */}
+              {/* Debt vs Equity trend */}
               {(() => {
                 let trendData = [];
                 if (rawFileData && rawFileData.allRows && rawFileData.allRows.length > 1) {
-                  const debtCol   = fieldMappings.totalDebt;
+                  const debtCol = fieldMappings.totalDebt;
                   const equityCol = fieldMappings.equity;
-                  const monthCol  = rawFileData.columns.find(c =>
-                    c.toLowerCase().includes('month') || c.toLowerCase().includes('date') || c.toLowerCase().includes('period')
-                  );
+                  const monthCol = rawFileData.columns.find(c => c.toLowerCase().includes('month') || c.toLowerCase().includes('date') || c.toLowerCase().includes('period'));
                   trendData = rawFileData.allRows.map((row, idx) => ({
-                    month:     monthCol && row[monthCol] ? row[monthCol] : `P${idx + 1}`,
-                    totalDebt: debtCol   && row[debtCol]   != null ? parseFloat(row[debtCol])   || 0 : financialData.totalDebt,
-                    equity:    equityCol && row[equityCol]  != null ? parseFloat(row[equityCol]) || 0 : financialData.equity,
+                    month: monthCol && row[monthCol] ? row[monthCol] : `P${idx + 1}`,
+                    totalDebt: debtCol && row[debtCol] != null ? parseFloat(row[debtCol]) || 0 : financialData.totalDebt,
+                    equity: equityCol && row[equityCol] != null ? parseFloat(row[equityCol]) || 0 : financialData.equity,
                   }));
                 } else {
                   trendData = [{ month: 'Current', totalDebt: financialData.totalDebt, equity: financialData.equity }];
                 }
                 return (
-                  <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
-                    <h3 className="text-sm font-bold text-slate-700 mb-1 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-slate-500" />Debt vs. Equity Trend</h3>
-                    <p className="text-xs text-slate-400 mb-4">Historical leverage movement (SAR)</p>
+                  <div className="r-panel p-5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <TrendingUp className="h-4 w-4" style={{ color: 'var(--ink-faint)' }} strokeWidth={1.5} />
+                      <p className="text-sm font-semibold">Debt vs. Equity Trend</p>
+                    </div>
+                    <p className="r-eyebrow mb-4">Historical leverage movement (SAR)</p>
                     <div className="h-56">
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={trendData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                          <XAxis dataKey="month" stroke="#94A3B8" style={{ fontSize: '11px' }} />
-                          <YAxis stroke="#94A3B8" style={{ fontSize: '11px' }} tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
-                          <Tooltip formatter={(value, name) => [`${(value/1000000).toFixed(2)}M SAR`, name === 'totalDebt' ? 'Total Debt' : 'Equity']} contentStyle={{ backgroundColor: 'white', border: '1px solid #E2E8F0', borderRadius: '8px', fontSize: '12px' }} />
-                          <Line type="monotone" dataKey="totalDebt" stroke="#F43F5E" strokeWidth={2.5} dot={{ r: 3, fill: '#F43F5E' }} name="totalDebt" />
-                          <Line type="monotone" dataKey="equity"    stroke="#10B981" strokeWidth={2.5} dot={{ r: 3, fill: '#10B981' }} name="equity" />
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--hairline)" />
+                          <XAxis dataKey="month" stroke="var(--ink-faint)" style={{ fontSize: '11px' }} />
+                          <YAxis stroke="var(--ink-faint)" style={{ fontSize: '11px' }} tickFormatter={(v) => v >= 1e6 ? `${(v/1e6).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
+                          <Tooltip formatter={(value, name) => [`${(value/1e6).toFixed(2)}M SAR`, name === 'totalDebt' ? 'Total Debt' : 'Equity']} contentStyle={{ background: 'var(--panel)', border: '1px solid var(--hairline)', borderRadius: 'var(--radius)', fontSize: '12px', color: 'var(--ink)' }} />
+                          <Line type="monotone" dataKey="totalDebt" stroke="var(--danger)" strokeWidth={2} dot={{ r: 3, fill: 'var(--danger)' }} />
+                          <Line type="monotone" dataKey="equity" stroke="var(--safe)" strokeWidth={2} dot={{ r: 3, fill: 'var(--safe)' }} />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
                     <div className="flex items-center gap-6 mt-3 justify-center">
-                      <div className="flex items-center gap-2 text-xs text-slate-500"><div className="w-4 h-0.5 bg-rose-500 rounded" />Total Debt</div>
-                      <div className="flex items-center gap-2 text-xs text-slate-500"><div className="w-4 h-0.5 bg-emerald-500 rounded" />Equity</div>
+                      <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        <div className="w-4 h-0.5 rounded" style={{ background: 'var(--danger)' }} />Total Debt
+                      </div>
+                      <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        <div className="w-4 h-0.5 rounded" style={{ background: 'var(--safe)' }} />Equity
+                      </div>
                     </div>
                   </div>
                 );
@@ -1372,31 +1466,50 @@ export default function FinSightApp() {
             </div>
           </div>
 
-          {/* UC5: Industry selector + Run Assessment — industry choice drives all benchmark comparisons */}
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-6 py-4 space-y-4">
-            <div className="flex items-center gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">SME Industry</label>
-                <select value={selectedIndustry} onChange={(e) => setSelectedIndustry(e.target.value)} className="px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 font-medium focus:ring-2 focus:ring-indigo-500 outline-none">
-                  <option value="" disabled>Select an industry</option>
-                  {['SaaS', 'Retail', 'Construction', 'Logistics', 'Manufacturing', 'Tourism', 'Healthcare'].map(industry => (<option key={industry} value={industry}>{industry}</option>))}
-                </select>
+          {/* UC5: Industry selector chip row + benchmarks + Run Assessment */}
+          <div className="r-panel overflow-hidden">
+            <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--hairline)' }}>
+              <p className="r-eyebrow mb-3">SME Industry</p>
+              <div className="flex flex-wrap gap-2">
+                {['Logistics', 'Manufacturing', 'SaaS', 'Retail', 'Construction', 'Tourism', 'Healthcare'].map(ind => (
+                  <button key={ind} onClick={() => setSelectedIndustry(ind)}
+                    className="px-4 py-1.5 text-sm font-semibold rounded transition-all"
+                    style={{
+                      background: selectedIndustry === ind ? 'var(--signal)' : 'var(--surface)',
+                      color: selectedIndustry === ind ? 'var(--navy-950)' : 'var(--ink-muted)',
+                      border: `1px solid ${selectedIndustry === ind ? 'var(--signal)' : 'var(--hairline)'}`,
+                    }}>
+                    {ind}
+                  </button>
+                ))}
               </div>
-              {selectedIndustry && (
-                <div className="text-xs text-slate-500 space-y-0.5 border-l border-slate-200 pl-4">
-                  <p>Min EBITDA Margin: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minEBITDAMargin}%</span></p>
-                  <p>Min DSCR: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minDSCR}x</span></p>
-                  <p>Min Current Ratio: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minCurrentRatio}x</span></p>
-                  <p>Max D/E: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].maxDebtEquity}x</span></p>
-                  <p>Min ROA: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minROA}%</span></p>
-                  <p>Min Quick Ratio: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minQuickRatio}x</span></p>
-                  <p>Min ICR: <span className="font-bold text-slate-700">{industryStandards[selectedIndustry].minICR}x</span></p>
-                </div>
-              )}
             </div>
-            <button onClick={calculateAssessment} disabled={!selectedIndustry} className="w-full flex items-center justify-center gap-2 px-8 py-3.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl font-semibold text-sm shadow-md transition-colors">
-              <Calculator className="h-5 w-5" />Run Funding Assessment
-            </button>
+
+            {std && (
+              <div className="px-5 py-3 flex flex-wrap gap-x-5 gap-y-1.5" style={{ borderBottom: '1px solid var(--hairline)', background: 'var(--surface)' }}>
+                <p className="r-eyebrow w-full mb-0.5">{selectedIndustry} Thresholds</p>
+                {[
+                  ['Min EBITDA', `${std.minEBITDAMargin}%`],
+                  ['Min DSCR', `${std.minDSCR}x`],
+                  ['Min Current Ratio', `${std.minCurrentRatio}x`],
+                  ['Max D/E', `${std.maxDebtEquity}x`],
+                  ['Min ROA', `${std.minROA}%`],
+                  ['Min Quick Ratio', `${std.minQuickRatio}x`],
+                  ['Min ICR', `${std.minICR}x`],
+                ].map(([lbl, val]) => (
+                  <span key={lbl} className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                    {lbl} <span className="font-bold tabular" style={{ color: 'var(--ink)' }}>{val}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="px-5 py-4">
+              <button onClick={calculateAssessment} disabled={!selectedIndustry}
+                className="r-btn-primary px-6 py-2.5 text-sm gap-2 disabled:opacity-40">
+                <Calculator className="h-4 w-4" strokeWidth={1.5} />Run Funding Assessment
+              </button>
+            </div>
           </div>
 
         </main>
@@ -1404,71 +1517,77 @@ export default function FinSightApp() {
     );
   }
 
-  // UI: Assessment Results Page — decision card, ratio breakdown, strengths/weaknesses, scenario sandbox
+  // UI: Assessment Results Page
   if (currentPage === 'assessment' && assessmentResults) {
+    const decStyle = (d) => ({
+      background: d === 'APPROVED' ? 'var(--safe-tint)' : d === 'REVIEW' ? 'var(--caution-tint)' : 'var(--danger-tint)',
+      border: `1px solid ${d === 'APPROVED' ? 'color-mix(in oklch, var(--safe) 20%, transparent)' : d === 'REVIEW' ? 'color-mix(in oklch, var(--caution) 20%, transparent)' : 'color-mix(in oklch, var(--danger) 20%, transparent)'}`,
+    });
+    const decBadgeCls = (d) => d === 'APPROVED' ? 'r-badge-safe' : d === 'REVIEW' ? 'r-badge-caution' : 'r-badge-danger';
+    const scoreColor = (s) => s >= 80 ? 'var(--safe)' : s >= 60 ? 'var(--caution)' : 'var(--danger)';
+    const scoreTint  = (s) => s >= 80 ? 'var(--safe-tint)' : s >= 60 ? 'var(--caution-tint)' : 'var(--danger-tint)';
+    const ttSt = { background: 'var(--panel)', border: '1px solid var(--hairline)', borderRadius: 'var(--radius)', fontSize: '12px', color: 'var(--ink)' };
+    const inputSt = { background: 'var(--surface)', border: '1px solid var(--hairline)', color: 'var(--ink)' };
     return (
-      <div className="min-h-screen bg-slate-50">
-        <header className="bg-slate-900 px-8 py-4 flex items-center justify-between sticky top-0 z-10 shadow-md">
-          <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="FinSight" className="h-20 w-auto" />
-            <span className="ml-4 text-slate-400 text-sm font-medium border-l border-slate-700 pl-4">Assessment Report — {financialData.companyName}</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <button onClick={() => setCurrentPage('dashboard')} className="flex items-center gap-2 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-sm font-medium transition-colors">
-              <ArrowLeft className="h-4 w-4" />Dashboard
-            </button>
-            <button onClick={() => setCurrentPage('portfolio')} className="flex items-center gap-2 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-sm font-medium transition-colors">
-              <Building2 className="h-4 w-4" />Portfolio
-            </button>
-            {/* UC6 (Scenario): toggles What-If sandbox — deep copies financialData into scenarioData */}
-            <button
-              onClick={() => {
-                if (isScenarioMode) { setIsScenarioMode(false); setScenarioData(null); setScenarioMlData(null); setScenarioMlError(false); }
-                else {
-                  const copy = JSON.parse(JSON.stringify(financialData));
-                  setIsScenarioMode(true);
-                  setScenarioData(copy);
-                  fetchScenarioMl(copy);
-                }
-              }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isScenarioMode ? 'bg-amber-500 hover:bg-amber-400 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'}`}
-            >
-              <Zap className="h-4 w-4" />{isScenarioMode ? 'Exit Simulation' : 'Scenario Analysis Mode'}
-            </button>
-            <button onClick={() => setShowSettings(!showSettings)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold transition-colors">
-              <Settings className="h-4 w-4" />{showSettings ? 'Hide Config' : 'Configure'}
-            </button>
-            <button onClick={() => { localStorage.removeItem('finsight_auth'); window.location.href = '/'; }} className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-semibold transition-colors">
-              Log Out
-            </button>
-          </div>
-        </header>
+      <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
+        <NavBar currentPage={currentPage} setCurrentPage={setCurrentPage}
+          financialData={financialData} assessmentResults={assessmentResults} portfolio={portfolio} />
 
-        <main className="w-full px-8 py-6 space-y-6">
+        <main className="max-w-[1320px] mx-auto px-8 py-8 space-y-6">
+
+          {/* Page title + controls row */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-xl font-bold">Assessment Report</h1>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--ink-muted)' }}>
+                  {financialData.companyName}{selectedIndustry ? ` · ${selectedIndustry}` : ''}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={() => {
+                  if (isScenarioMode) { setIsScenarioMode(false); setScenarioData(null); setScenarioMlData(null); setScenarioMlError(false); }
+                  else { const copy = JSON.parse(JSON.stringify(financialData)); setIsScenarioMode(true); setScenarioData(copy); fetchScenarioMl(copy); }
+                }}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded transition-colors"
+                style={{ background: isScenarioMode ? 'var(--caution)' : 'var(--surface)', color: isScenarioMode ? '#fff' : 'var(--ink)', border: `1px solid ${isScenarioMode ? 'var(--caution)' : 'var(--hairline)'}` }}>
+                <Zap className="h-4 w-4" strokeWidth={1.5} />
+                {isScenarioMode ? 'Exit Scenario Mode' : 'Scenario Analysis'}
+              </button>
+              <button
+                onClick={() => setShowSettings(!showSettings)}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded transition-colors"
+                style={{ background: showSettings ? 'var(--navy-950)' : 'var(--surface)', color: showSettings ? 'var(--panel)' : 'var(--ink)', border: `1px solid ${showSettings ? 'var(--navy-800)' : 'var(--hairline)'}` }}>
+                <Settings className="h-4 w-4" strokeWidth={1.5} />
+                {showSettings ? 'Hide Weights' : 'Scoring Weights'}
+              </button>
+            </div>
+          </div>
 
           {portfolioViewMeta && (
-            <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-5 py-4 flex items-center justify-between">
+            <div className="r-panel px-5 py-4 flex items-center justify-between"
+              style={{ background: 'color-mix(in oklch, var(--signal) 8%, var(--panel))', border: '1px solid color-mix(in oklch, var(--signal) 20%, transparent)' }}>
               <div className="flex items-center gap-3">
-                <FileText className="h-5 w-5 text-indigo-600 flex-shrink-0" />
+                <FileText className="h-4 w-4 shrink-0" style={{ color: 'var(--signal)' }} strokeWidth={1.5} />
                 <div>
-                  <p className="text-sm font-bold text-indigo-900">Saved assessment — {portfolioViewMeta.companyName}</p>
-                  <p className="text-xs text-indigo-600">Assessed on {portfolioViewMeta.assessedAt}. This is a historical snapshot, not a live re-run.</p>
+                  <p className="text-sm font-bold">Saved assessment — {portfolioViewMeta.companyName}</p>
+                  <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>Assessed on {portfolioViewMeta.assessedAt}. Historical snapshot, not a live re-run.</p>
                 </div>
               </div>
-              <button onClick={() => setPortfolioViewMeta(null)} className="text-xs font-semibold text-indigo-700 hover:text-indigo-900 px-3 py-1.5 hover:bg-indigo-100 rounded-lg transition-colors">
-                Dismiss
-              </button>
+              <button onClick={() => setPortfolioViewMeta(null)} className="r-btn-ghost text-xs px-3 py-1.5">Dismiss</button>
             </div>
           )}
 
-          {/* UC5 (Configure): weight adjustment panel — only affects scoring weights, not industry benchmarks */}
+          {/* UC5 Settings panel */}
           {showSettings && (
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-base font-bold text-slate-900">Assessment Criteria Configuration</h2>
-                <button onClick={resetThresholds} className="text-xs text-slate-500 hover:text-slate-800 font-semibold px-3 py-1.5 hover:bg-slate-100 rounded-lg transition-colors">Reset to Defaults</button>
+            <div className="r-panel p-6">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-sm font-bold">Scoring Weights Configuration</h2>
+                <button onClick={resetThresholds} className="r-btn-ghost text-xs px-3 py-1.5">Reset Defaults</button>
               </div>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
                 {[
                   { key: 'currentRatio', field: 'min',  step: '0.1'  },
                   { key: 'debtToEquity', field: 'max',  step: '0.1'  },
@@ -1478,62 +1597,63 @@ export default function FinSightApp() {
                   { key: 'quickRatio',   field: 'min',  step: '0.1'  },
                   { key: 'icr',          field: 'min',  step: '0.1'  },
                 ].map(({ key, field, step }) => (
-                  <div key={key} className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-                    <p className="text-xs font-bold text-slate-700 mb-3">{thresholds[key].label}</p>
-                    <input type="number" step={step} value={thresholds[key][field]} onChange={(e) => handleThresholdChange(key, field, e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 mb-3" />
-                    <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                      <span>Weight</span><span className="font-bold text-slate-700">{thresholds[key].weight}%</span>
+                  <div key={key} className="r-panel p-4" style={{ background: 'var(--surface)' }}>
+                    <p className="text-xs font-bold mb-3">{thresholds[key].label}</p>
+                    <input type="number" step={step} value={thresholds[key][field]} onChange={(e) => handleThresholdChange(key, field, e.target.value)}
+                      className="w-full px-3 py-2 text-sm rounded outline-none mb-3" style={inputSt} />
+                    <div className="flex items-center justify-between text-xs mb-1" style={{ color: 'var(--ink-muted)' }}>
+                      <span>Weight</span><span className="font-bold tabular" style={{ color: 'var(--ink)' }}>{thresholds[key].weight}%</span>
                     </div>
-                    <input type="range" min="0" max="100" value={thresholds[key].weight} onChange={(e) => handleThresholdChange(key, 'weight', e.target.value)} className="w-full accent-indigo-600" />
+                    <input type="range" min="0" max="100" value={thresholds[key].weight} onChange={(e) => handleThresholdChange(key, 'weight', e.target.value)}
+                      className="w-full" style={{ accentColor: 'var(--signal)' }} />
                   </div>
                 ))}
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <span className="text-sm text-slate-600 font-medium">Total Weight:</span>
-                  <span className={`text-lg font-bold ${getTotalWeight() === 100 ? 'text-emerald-600' : 'text-rose-600'}`}>{getTotalWeight()}%</span>
-                  {getTotalWeight() !== 100 && <span className="text-xs text-rose-500">Must equal 100%</span>}
+                  <span className="text-sm" style={{ color: 'var(--ink-muted)' }}>Total Weight:</span>
+                  <span className="text-lg font-bold tabular" style={{ color: getTotalWeight() === 100 ? 'var(--safe)' : 'var(--danger)' }}>{getTotalWeight()}%</span>
+                  {getTotalWeight() !== 100 && <span className="text-xs" style={{ color: 'var(--danger)' }}>Must equal 100%</span>}
                 </div>
-                <button onClick={() => { setShowSettings(false); calculateAssessment(); }} className="flex items-center gap-2 px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-sm font-semibold transition-colors">
-                  <Save className="h-4 w-4" />Save & Recalculate
+                <button onClick={() => { setShowSettings(false); calculateAssessment(); }} className="r-btn-primary px-5 py-2.5 text-sm gap-2">
+                  <Save className="h-4 w-4" strokeWidth={1.5} />Save &amp; Recalculate
                 </button>
               </div>
             </div>
           )}
 
-          {/* UC6 (Scenario): warning banner — shown when sandbox is active */}
           {isScenarioMode && (
-            <div className="bg-amber-50 border border-amber-300 rounded-xl px-5 py-4 flex items-center justify-between">
+            <div className="r-panel px-5 py-4 flex items-center justify-between"
+              style={{ background: 'var(--caution-tint)', border: '1px solid color-mix(in oklch, var(--caution) 25%, transparent)' }}>
               <div className="flex items-center gap-3">
-                <Zap className="h-5 w-5 text-amber-600 flex-shrink-0" />
+                <Zap className="h-5 w-5 shrink-0" style={{ color: 'var(--caution)' }} strokeWidth={1.5} />
                 <div>
-                  <p className="text-sm font-bold text-amber-800">Scenario Analysis Mode Active</p>
-                  <p className="text-xs text-amber-600">You are viewing hypothetical numbers. The original uploaded data is unchanged.</p>
+                  <p className="text-sm font-bold">Scenario Analysis Mode Active</p>
+                  <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>Viewing hypothetical numbers. Original uploaded data is unchanged.</p>
                 </div>
               </div>
-              <button
-                onClick={() => setScenarioData(JSON.parse(JSON.stringify(financialData)))}
-                className="flex items-center gap-2 px-4 py-2 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg text-xs font-bold transition-colors"
-              >
+              <button onClick={() => setScenarioData(JSON.parse(JSON.stringify(financialData)))}
+                className="text-xs font-bold px-4 py-2 rounded"
+                style={{ background: 'var(--caution)', color: '#fff', border: 'none', cursor: 'pointer' }}>
                 Reset to Original
               </button>
             </div>
           )}
 
-          {/* UC6 (Scenario): slider controls — each slider updates scenarioData only, never financialData */}
+          {/* UC6 Scenario sliders */}
           {isScenarioMode && scenarioData && (
-            <div className="bg-white border border-amber-200 rounded-xl shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-amber-100 bg-amber-50">
-                <h2 className="text-sm font-bold text-amber-900">Scenario Controls</h2>
-                <p className="text-xs text-amber-600 mt-0.5">Drag the sliders to simulate changes. Results update instantly.</p>
-                {/* F-03: cashFlow is not silently derived from revenue − expenses (operating CF ≠ EBIT) */}
-                <p className="text-xs text-amber-500 mt-1.5">Cash flow is held at the uploaded value and adjustable via its own slider — it is not derived from revenue or expenses.</p>
+            <div className="r-panel overflow-hidden">
+              <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--hairline)', background: 'var(--surface)' }}>
+                <p className="text-sm font-bold">Scenario Controls</p>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--ink-muted)' }}>Drag sliders to simulate changes. Results update instantly.</p>
+                {/* F-03 */}
+                <p className="text-xs mt-1.5" style={{ color: 'var(--caution)' }}>Cash flow is adjustable independently — not derived from revenue or expenses.</p>
               </div>
-              <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {[
                   { key: 'revenue',            label: 'Annual Revenue',      min: 0, max: financialData.revenue * 3 },
                   { key: 'expenses',           label: 'Annual Expenses',     min: 0, max: financialData.revenue * 3 },
-                  // F-03: cashFlow is an explicit slider so the user can adjust it directly rather than having it silently derived
+                  // F-03
                   { key: 'cashFlow', label: 'Annual Cash Flow',
                     min: Math.min((financialData.cashFlow ?? 0) * 2, -(financialData.revenue ?? 0) * 0.5),
                     max: Math.max((financialData.cashFlow ?? 0) * 2, (financialData.revenue ?? 0) * 0.5) },
@@ -1541,254 +1661,238 @@ export default function FinSightApp() {
                   { key: 'currentAssets',      label: 'Current Assets',      min: 0, max: financialData.currentAssets * 4 || financialData.totalAssets },
                   { key: 'currentLiabilities', label: 'Current Liabilities', min: 0, max: financialData.currentLiabilities * 4 || financialData.totalAssets },
                   { key: 'equity',             label: 'Equity',              min: financialData.totalAssets * -0.5, max: financialData.totalAssets * 2 },
-                  ...(financialData.inventory != null
-                    ? [{ key: 'inventory', label: 'Inventory', min: 0, max: (financialData.inventory || 0) * 4 || financialData.currentAssets }]
-                    : []),
-                  ...(financialData.interestExpense != null
-                    ? [{ key: 'interestExpense', label: 'Interest Expense', min: 0, max: (financialData.interestExpense || 0) * 4 || financialData.revenue * 0.2 }]
-                    : []),
-                  ...(financialData.debtService != null
-                    ? [{ key: 'debtService', label: 'Annual Debt Service', min: 0, max: (financialData.debtService || 0) * 4 || financialData.totalDebt }]
-                    : []),
+                  ...(financialData.inventory != null ? [{ key: 'inventory', label: 'Inventory', min: 0, max: (financialData.inventory || 0) * 4 || financialData.currentAssets }] : []),
+                  ...(financialData.interestExpense != null ? [{ key: 'interestExpense', label: 'Interest Expense', min: 0, max: (financialData.interestExpense || 0) * 4 || financialData.revenue * 0.2 }] : []),
+                  ...(financialData.debtService != null ? [{ key: 'debtService', label: 'Annual Debt Service', min: 0, max: (financialData.debtService || 0) * 4 || financialData.totalDebt }] : []),
                 ].map(({ key, label, min, max }) => (
                   <div key={key}>
                     <div className="flex items-center justify-between mb-2">
-                      <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">{label}</label>
-                      <span className="text-xs font-bold text-slate-800">
-                        {scenarioData[key] >= 1000000 ? `${(scenarioData[key] / 1000000).toFixed(2)}M` : `${(scenarioData[key] / 1000).toFixed(0)}K`} SAR
+                      <label className="r-eyebrow">{label}</label>
+                      <span className="text-xs font-bold tabular" style={{ color: 'var(--ink)' }}>
+                        {scenarioData[key] >= 1e6 ? `${(scenarioData[key]/1e6).toFixed(2)}M` : `${(scenarioData[key]/1000).toFixed(0)}K`} SAR
                       </span>
                     </div>
                     <input type="range" min={min} max={max} step={(max - min) / 200} value={scenarioData[key] ?? 0}
-                      onChange={(e) => {
-                        // F-03: cashFlow is not recomputed — operating CF ≠ EBIT; it stays at the uploaded value
-                        setScenarioData({ ...scenarioData, [key]: parseFloat(e.target.value) });
-                      }}
-                      className="w-full accent-amber-500"
-                    />
+                      onChange={(e) => setScenarioData({ ...scenarioData, [key]: parseFloat(e.target.value) })}
+                      className="w-full" style={{ accentColor: 'var(--caution)' }} />
                     <input type="number" value={Math.round(scenarioData[key] ?? 0)}
-                      onChange={(e) => {
-                        setScenarioData({ ...scenarioData, [key]: parseFloat(e.target.value) || 0 });
-                      }}
-                      className="mt-2 w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:ring-2 focus:ring-amber-400 outline-none"
-                    />
+                      onChange={(e) => setScenarioData({ ...scenarioData, [key]: parseFloat(e.target.value) || 0 })}
+                      className="mt-2 w-full px-3 py-1.5 text-xs rounded outline-none" style={inputSt} />
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* UC6: Results display — switches between real assessmentResults and live computeAssessment(scenarioData) */}
+          {/* UC6 Results */}
           {(() => {
             const localResults = isScenarioMode && scenarioData ? computeAssessment(scenarioData) : assessmentResults;
-            // F-02: merge backend ML PoD + Z-Score into scenario results when available;
-            // scenarioMlData stays null until the first debounced fetch completes
+            // F-02
             const activeResults = (isScenarioMode && scenarioMlData)
               ? { ...localResults, altmanZScore: scenarioMlData.altmanZScore, probabilityOfDefault: scenarioMlData.probabilityOfDefault }
               : localResults;
             return (
               <>
-                {/* Knockout disqualifiers banner */}
                 {activeResults.knockouts && activeResults.knockouts.length > 0 && (
-                  <div className="bg-rose-50 border border-rose-200 rounded-xl p-5">
+                  <div className="r-panel p-5" style={{ background: 'var(--danger-tint)', border: '1px solid color-mix(in oklch, var(--danger) 25%, transparent)' }}>
                     <div className="flex items-center gap-2 mb-3">
-                      <XCircle className="h-5 w-5 text-rose-600" />
-                      <h3 className="text-sm font-bold text-rose-800">Automatic Disqualifiers Triggered</h3>
+                      <XCircle className="h-5 w-5 shrink-0" style={{ color: 'var(--danger)' }} strokeWidth={1.5} />
+                      <h3 className="text-sm font-bold">Automatic Disqualifiers Triggered</h3>
                     </div>
                     <ul className="space-y-2">
                       {activeResults.knockouts.map((k, idx) => (
-                        <li key={idx} className="flex items-start gap-2 text-sm text-rose-700">
-                          <XCircle className="h-4 w-4 text-rose-400 flex-shrink-0 mt-0.5" />{k}
+                        <li key={idx} className="flex items-start gap-2 text-sm" style={{ color: 'var(--danger)' }}>
+                          <XCircle className="h-4 w-4 shrink-0 mt-0.5" strokeWidth={1.5} />{k}
                         </li>
                       ))}
                     </ul>
                   </div>
                 )}
 
-                {/* Decision card + ratio breakdown */}
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
-                  <div className={`rounded-xl shadow-sm p-6 border flex flex-col justify-between ${
-                    activeResults.decision === 'APPROVED' ? 'bg-emerald-50 border-emerald-200'
-                    : activeResults.decision === 'REVIEW'  ? 'bg-amber-50 border-amber-200'
-                    : 'bg-rose-50 border-rose-200'
-                  }`}>
+                  {/* Decision card */}
+                  <div className="rounded p-6 flex flex-col justify-between" style={decStyle(activeResults.decision)}>
                     <div>
                       <div className="flex items-center justify-between mb-4">
-                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">{isScenarioMode ? 'Scenario Decision' : 'Funding Decision'}</span>
-                        {activeResults.decision === 'APPROVED' && <CheckCircle className="h-6 w-6 text-emerald-600" />}
-                        {activeResults.decision === 'REVIEW'   && <AlertTriangle className="h-6 w-6 text-amber-600" />}
-                        {activeResults.decision === 'REJECTED' && <XCircle className="h-6 w-6 text-rose-600" />}
+                        <p className="r-eyebrow">{isScenarioMode ? 'Scenario Decision' : 'Funding Decision'}</p>
+                        {activeResults.decision === 'APPROVED' && <CheckCircle className="h-6 w-6" style={{ color: 'var(--safe)' }} strokeWidth={1.5} />}
+                        {activeResults.decision === 'REVIEW'   && <AlertTriangle className="h-6 w-6" style={{ color: 'var(--caution)' }} strokeWidth={1.5} />}
+                        {activeResults.decision === 'REJECTED' && <XCircle className="h-6 w-6" style={{ color: 'var(--danger)' }} strokeWidth={1.5} />}
                       </div>
-                      <p className="text-5xl font-bold text-slate-900 mb-2">{activeResults.overallScore}%</p>
-                      <p className="text-xs text-slate-500 mb-3">Weighted composite score</p>
+                      <p className="text-5xl font-bold tabular mb-2">{activeResults.overallScore}%</p>
+                      <p className="text-xs mb-3" style={{ color: 'var(--ink-muted)' }}>Weighted composite score</p>
                     </div>
-                    <span className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold self-start ${
-                      activeResults.decision === 'APPROVED' ? 'bg-emerald-100 text-emerald-700'
-                      : activeResults.decision === 'REVIEW' ? 'bg-amber-100 text-amber-700'
-                      : 'bg-rose-100 text-rose-700'
-                    }`}>
-                      {activeResults.decision === 'APPROVED' && <CheckCircle className="h-4 w-4" />}
-                      {activeResults.decision === 'REVIEW'   && <AlertTriangle className="h-4 w-4" />}
-                      {activeResults.decision === 'REJECTED' && <XCircle className="h-4 w-4" />}
+                    <span className={`${decBadgeCls(activeResults.decision)} self-start`}
+                      style={{ fontSize: '13px', padding: '5px 14px' }}>
+                      {activeResults.decision === 'APPROVED' && <CheckCircle className="h-4 w-4" strokeWidth={1.5} />}
+                      {activeResults.decision === 'REVIEW'   && <AlertTriangle className="h-4 w-4" strokeWidth={1.5} />}
+                      {activeResults.decision === 'REJECTED' && <XCircle className="h-4 w-4" strokeWidth={1.5} />}
                       {activeResults.decision}
                     </span>
                   </div>
 
+                  {/* Altman Z card */}
                   {(() => {
                     const altman = activeResults.altmanZScore || null;
                     const zone = altman?.zone || 'Pending';
-                    const classes = getAltmanZoneClasses(zone);
+                    const zs = getAltmanZoneStyles(zone);
                     return (
-                      <div className={`rounded-xl shadow-sm p-6 border flex flex-col justify-between ${classes.card}`}>
+                      <div className="rounded p-6 flex flex-col justify-between" style={zs.cardStyle}>
                         <div>
                           <div className="flex items-center justify-between mb-4">
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Altman Z''-Score</span>
-                            <BarChart3 className={`h-6 w-6 ${classes.icon}`} />
+                            <p className="r-eyebrow">Altman Z''-Score</p>
+                            <BarChart3 className="h-6 w-6" style={{ color: zs.iconColor }} strokeWidth={1.5} />
                           </div>
-                          <p className="text-5xl font-bold text-slate-900 mb-2">
-                            {altman?.score !== null && altman?.score !== undefined ? Number(altman.score).toFixed(2) : '—'}
+                          <p className="text-5xl font-bold tabular mb-2">
+                            {altman?.score != null ? Number(altman.score).toFixed(2) : '—'}
                           </p>
-                          <p className="text-xs text-slate-500 mb-3">Master bankruptcy-risk health metric</p>
-                          {/* F-14: disclose local-engine fallback when ML backend was unreachable */}
+                          {/* F-14 */}
                           {activeResults.mlFailed && (
-                            <p className="text-[10px] text-amber-600 font-semibold mb-3 flex items-center gap-1">
-                              <AlertTriangle className="h-3 w-3 flex-shrink-0" />
-                              Local estimate — ML backend unavailable
+                            <p className="text-[10px] font-semibold mb-3 flex items-center gap-1" style={{ color: 'var(--caution)' }}>
+                              <AlertTriangle className="h-3 w-3 shrink-0" strokeWidth={1.5} />Local estimate — ML backend unavailable
                             </p>
                           )}
                           {activeResults.probabilityOfDefault != null && (
-                            <div className={`flex items-center justify-between px-3 py-2 rounded-lg mb-1 ${
-                              activeResults.probabilityOfDefault < 0.20 ? 'bg-emerald-100'
-                              : activeResults.probabilityOfDefault < 0.60 ? 'bg-amber-100'
-                              : 'bg-rose-100'
-                            }`}>
-                              <span className="text-xs font-semibold text-slate-600">Prob. of Default</span>
-                              <span className={`text-sm font-bold tabular-nums ${
-                                activeResults.probabilityOfDefault < 0.20 ? 'text-emerald-700'
-                                : activeResults.probabilityOfDefault < 0.60 ? 'text-amber-700'
-                                : 'text-rose-700'
-                              }`}>{(activeResults.probabilityOfDefault * 100).toFixed(2)}%</span>
+                            <div className="flex items-center justify-between px-3 py-2 rounded mb-1"
+                              style={{ background: activeResults.probabilityOfDefault < 0.20 ? 'var(--safe-tint)' : activeResults.probabilityOfDefault < 0.60 ? 'var(--caution-tint)' : 'var(--danger-tint)' }}>
+                              <span className="text-xs font-semibold" style={{ color: 'var(--ink-muted)' }}>Prob. of Default</span>
+                              <span className="text-sm font-bold tabular"
+                                style={{ color: activeResults.probabilityOfDefault < 0.20 ? 'var(--safe)' : activeResults.probabilityOfDefault < 0.60 ? 'var(--caution)' : 'var(--danger)' }}>
+                                {(activeResults.probabilityOfDefault * 100).toFixed(2)}%
+                              </span>
                             </div>
                           )}
                         </div>
-                        <span className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold self-start border ${classes.badge}`}>
-                          {String(zone).toLowerCase() === 'safe' && <CheckCircle className="h-4 w-4" />}
-                          {(String(zone).toLowerCase() === 'grey' || String(zone).toLowerCase() === 'gray' || zone === 'Pending') && <AlertTriangle className="h-4 w-4" />}
-                          {String(zone).toLowerCase() === 'distress' && <XCircle className="h-4 w-4" />}
+                        <span className={`${zs.badgeCls} self-start mt-3`} style={{ fontSize: '12px', padding: '4px 12px' }}>
+                          {String(zone).toLowerCase() === 'safe'    && <CheckCircle className="h-3.5 w-3.5" strokeWidth={1.5} />}
+                          {(String(zone).toLowerCase() === 'grey' || String(zone).toLowerCase() === 'gray' || zone === 'Pending') && <AlertTriangle className="h-3.5 w-3.5" strokeWidth={1.5} />}
+                          {String(zone).toLowerCase() === 'distress' && <XCircle className="h-3.5 w-3.5" strokeWidth={1.5} />}
                           {zone} Zone
                         </span>
                       </div>
                     );
                   })()}
 
-                  <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl shadow-sm p-6">
-                    <h3 className="text-sm font-bold text-slate-700 mb-4">Financial Ratios Breakdown</h3>
-                    <div className="space-y-3">
-                      {/* Each row shows the ratio value, its 0-100 score, weight, and industry benchmark — dynamic active ratios */}
+                  {/* Ratio breakdown */}
+                  <div className="lg:col-span-2 r-panel p-6">
+                    <p className="text-sm font-bold mb-4">Financial Ratios Breakdown</p>
+                    <div className="space-y-2">
                       {activeResults.activeRatios.map((r) => {
                         const score = activeResults.scores[r.key];
                         const value = formatRatioDisplay(r.key, activeResults.ratios[r.key]);
                         const weight = thresholds[r.key]?.weight ?? r.weight;
                         const benchmark = getRatioBenchmark(r.key);
                         return (
-                          <div key={r.key} className={`flex items-center justify-between px-4 py-3 rounded-lg border ${score >= 80 ? 'bg-emerald-50 border-emerald-100' : score >= 60 ? 'bg-amber-50 border-amber-100' : 'bg-rose-50 border-rose-100'}`}>
+                          <div key={r.key} className="flex items-center justify-between px-4 py-3 rounded"
+                            style={{
+                              background: scoreTint(score),
+                              border: `1px solid ${score >= 80 ? 'color-mix(in oklch, var(--safe) 15%, transparent)' : score >= 60 ? 'color-mix(in oklch, var(--caution) 15%, transparent)' : 'color-mix(in oklch, var(--danger) 15%, transparent)'}`,
+                            }}>
                             <div className="flex items-center gap-3">
-                              <div className={`w-1.5 h-8 rounded-full ${score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-rose-500'}`} />
+                              <div className="w-1.5 h-8 rounded-full shrink-0" style={{ background: scoreColor(score) }} />
                               <div>
-                                <p className="text-sm font-semibold text-slate-800">{r.label}</p>
-                                <p className="text-xs text-slate-400">Weight: {weight}% · {benchmark} <span className="text-indigo-500 font-semibold">({selectedIndustry})</span></p>
+                                <p className="text-sm font-semibold">{r.label}</p>
+                                <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+                                  Weight: {weight}% · {benchmark}
+                                  {' '}<span className="font-semibold" style={{ color: 'var(--signal)' }}>({selectedIndustry})</span>
+                                </p>
                               </div>
                             </div>
                             <div className="text-right">
-                              <p className="text-base font-bold text-slate-900">{value}</p>
-                              <p className={`text-xs font-bold ${score >= 80 ? 'text-emerald-600' : score >= 60 ? 'text-amber-600' : 'text-rose-600'}`}>{score} / 100</p>
+                              <p className="text-base font-bold tabular">{value}</p>
+                              <p className="text-xs font-bold tabular" style={{ color: scoreColor(score) }}>{score} / 100</p>
                             </div>
                           </div>
                         );
                       })}
                     </div>
                     {activeResults.droppedRatios && activeResults.droppedRatios.length > 0 && (
-                      <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
+                      <div className="mt-4 p-4 rounded" style={{ background: 'var(--caution-tint)', border: '1px solid color-mix(in oklch, var(--caution) 20%, transparent)' }}>
                         <div className="flex items-center gap-2 mb-2">
-                          <AlertTriangle className="w-4 h-4 text-amber-500" />
-                          <h4 className="text-sm font-semibold text-amber-700">Ratios excluded from this assessment</h4>
+                          <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: 'var(--caution)' }} strokeWidth={1.5} />
+                          <p className="text-xs font-semibold" style={{ color: 'var(--caution)' }}>Ratios excluded from this assessment</p>
                         </div>
-                        <ul className="text-xs text-amber-600 space-y-1">
-                          {activeResults.droppedRatios.map((msg, i) => (
-                            <li key={i}>• {msg}</li>
-                          ))}
+                        <ul className="text-xs space-y-0.5" style={{ color: 'var(--ink-muted)' }}>
+                          {activeResults.droppedRatios.map((msg, i) => <li key={i}>· {msg}</li>)}
                         </ul>
-                        <p className="text-xs text-amber-500 mt-2">
-                          Weights were redistributed across {activeResults.activeRatios.length} available ratios.
+                        <p className="text-xs mt-2" style={{ color: 'var(--ink-faint)' }}>
+                          Weights redistributed across {activeResults.activeRatios.length} available ratios.
                         </p>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* Risk Gauge — Probability of Default */}
+                {/* PoD gauge */}
                 {activeResults.probabilityOfDefault != null && (
-                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                  <div className="r-panel p-6">
                     <div className="flex justify-between items-center mb-2">
-                      <h3 className="text-sm font-bold text-slate-500 uppercase">Prob. of Default</h3>
-                      <span className="font-mono text-lg font-bold">{(activeResults.probabilityOfDefault * 100).toFixed(2)}%</span>
+                      <p className="r-eyebrow">Probability of Default</p>
+                      <span className="font-mono text-lg font-bold tabular"
+                        style={{ color: activeResults.probabilityOfDefault < 0.2 ? 'var(--safe)' : activeResults.probabilityOfDefault < 0.6 ? 'var(--caution)' : 'var(--danger)' }}>
+                        {(activeResults.probabilityOfDefault * 100).toFixed(2)}%
+                      </span>
                     </div>
-                    <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
-                      <div
-                        className={`h-full transition-all duration-500 ${activeResults.probabilityOfDefault < 0.2 ? 'bg-emerald-500' : activeResults.probabilityOfDefault < 0.6 ? 'bg-amber-500' : 'bg-red-500'}`}
-                        style={{ width: `${activeResults.probabilityOfDefault * 100}%` }}
-                      />
+                    <div className="w-full h-3 rounded-full overflow-hidden" style={{ background: 'var(--hairline)' }}>
+                      <div className="h-full transition-all duration-500 rounded-full"
+                        style={{ width: `${activeResults.probabilityOfDefault * 100}%`, background: activeResults.probabilityOfDefault < 0.2 ? 'var(--safe)' : activeResults.probabilityOfDefault < 0.6 ? 'var(--caution)' : 'var(--danger)' }} />
                     </div>
                   </div>
                 )}
-                {/* F-13: show when scenario ML call failed and PoD gauge cannot display */}
+                {/* F-13 */}
                 {isScenarioMode && scenarioMlError && activeResults.probabilityOfDefault == null && (
-                  <div className="bg-white p-5 rounded-xl border border-amber-200 shadow-sm flex items-center gap-2.5">
-                    <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />
-                    <p className="text-sm text-amber-700 font-semibold">Probability of Default unavailable — ML backend error</p>
+                  <div className="r-panel p-5 flex items-center gap-2.5" style={{ border: '1px solid color-mix(in oklch, var(--caution) 25%, transparent)' }}>
+                    <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: 'var(--caution)' }} strokeWidth={1.5} />
+                    <p className="text-sm font-semibold" style={{ color: 'var(--caution)' }}>Probability of Default unavailable — ML backend error</p>
                   </div>
                 )}
 
-                {/* Strengths, weaknesses, recommendations */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                  <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
-                    <h3 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2"><CheckCircle className="h-4 w-4 text-emerald-500" />Strengths</h3>
-                    {activeResults.strengths.length > 0 ? (
-                      <ul className="space-y-2">
-                        {activeResults.strengths.map((s, idx) => (
-                          <li key={idx} className="flex items-start gap-2 text-sm text-slate-600"><CheckCircle className="h-4 w-4 text-emerald-500 flex-shrink-0 mt-0.5" />{s}</li>
-                        ))}
-                      </ul>
-                    ) : <p className="text-sm text-slate-400 italic">No strengths identified.</p>}
+                  <div className="r-panel p-5">
+                    <p className="text-sm font-bold mb-4 flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4" style={{ color: 'var(--safe)' }} strokeWidth={1.5} />Strengths
+                    </p>
+                    {activeResults.strengths.length > 0
+                      ? <ul className="space-y-2">{activeResults.strengths.map((s, idx) => (
+                          <li key={idx} className="flex items-start gap-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
+                            <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" style={{ color: 'var(--safe)' }} strokeWidth={1.5} />{s}
+                          </li>
+                        ))}</ul>
+                      : <p className="text-sm italic" style={{ color: 'var(--ink-faint)' }}>No strengths identified.</p>}
                   </div>
 
-                  <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
-                    <h3 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-rose-500" />Weaknesses</h3>
-                    {activeResults.weaknesses.length > 0 ? (
-                      <ul className="space-y-2">
-                        {activeResults.weaknesses.map((w, idx) => (
-                          <li key={idx} className="flex items-start gap-2 text-sm text-slate-600"><XCircle className="h-4 w-4 text-rose-400 flex-shrink-0 mt-0.5" />{w}</li>
-                        ))}
-                      </ul>
-                    ) : <p className="text-sm text-slate-400 italic">No critical weaknesses identified.</p>}
+                  <div className="r-panel p-5">
+                    <p className="text-sm font-bold mb-4 flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4" style={{ color: 'var(--danger)' }} strokeWidth={1.5} />Weaknesses
+                    </p>
+                    {activeResults.weaknesses.length > 0
+                      ? <ul className="space-y-2">{activeResults.weaknesses.map((w, idx) => (
+                          <li key={idx} className="flex items-start gap-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
+                            <XCircle className="h-4 w-4 shrink-0 mt-0.5" style={{ color: 'var(--danger)' }} strokeWidth={1.5} />{w}
+                          </li>
+                        ))}</ul>
+                      : <p className="text-sm italic" style={{ color: 'var(--ink-faint)' }}>No critical weaknesses identified.</p>}
                   </div>
 
-                  <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-sm p-5">
-                    <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2"><Save className="h-4 w-4 text-indigo-400" />Recommendations</h3>
+                  <div className="rounded p-5" style={{ background: 'var(--navy-950)', border: '1px solid var(--navy-800)' }}>
+                    <p className="text-sm font-bold mb-4 flex items-center gap-2" style={{ color: 'var(--panel)' }}>
+                      <Save className="h-4 w-4" style={{ color: 'var(--signal)' }} strokeWidth={1.5} />Recommendations
+                    </p>
                     <ul className="space-y-2">
                       {activeResults.decision === 'APPROVED' && (<>
-                        <li className="text-sm text-slate-300 flex items-start gap-2"><span className="text-emerald-400 mt-0.5">→</span>Approve funding request</li>
-                        <li className="text-sm text-slate-300 flex items-start gap-2"><span className="text-emerald-400 mt-0.5">→</span>Standard loan terms applicable</li>
-                        <li className="text-sm text-slate-300 flex items-start gap-2"><span className="text-emerald-400 mt-0.5">→</span>Monitor quarterly performance</li>
+                        <li className="text-sm flex items-start gap-2" style={{ color: 'oklch(0.75 0.015 75)' }}><span style={{ color: 'var(--safe)' }}>→</span>Approve funding request</li>
+                        <li className="text-sm flex items-start gap-2" style={{ color: 'oklch(0.75 0.015 75)' }}><span style={{ color: 'var(--safe)' }}>→</span>Standard loan terms applicable</li>
+                        <li className="text-sm flex items-start gap-2" style={{ color: 'oklch(0.75 0.015 75)' }}><span style={{ color: 'var(--safe)' }}>→</span>Monitor quarterly performance</li>
                       </>)}
                       {activeResults.decision === 'REVIEW' && (<>
-                        <li className="text-sm text-slate-300 flex items-start gap-2"><span className="text-amber-400 mt-0.5">→</span>Request additional documentation</li>
-                        <li className="text-sm text-slate-300 flex items-start gap-2"><span className="text-amber-400 mt-0.5">→</span>Consider conditional approval</li>
-                        <li className="text-sm text-slate-300 flex items-start gap-2"><span className="text-amber-400 mt-0.5">→</span>Reassess after 90 days</li>
+                        <li className="text-sm flex items-start gap-2" style={{ color: 'oklch(0.75 0.015 75)' }}><span style={{ color: 'var(--caution)' }}>→</span>Request additional documentation</li>
+                        <li className="text-sm flex items-start gap-2" style={{ color: 'oklch(0.75 0.015 75)' }}><span style={{ color: 'var(--caution)' }}>→</span>Consider conditional approval</li>
+                        <li className="text-sm flex items-start gap-2" style={{ color: 'oklch(0.75 0.015 75)' }}><span style={{ color: 'var(--caution)' }}>→</span>Reassess after 90 days</li>
                       </>)}
                       {activeResults.decision === 'REJECTED' && (<>
-                        <li className="text-sm text-slate-300 flex items-start gap-2"><span className="text-rose-400 mt-0.5">→</span>Decline funding request</li>
-                        <li className="text-sm text-slate-300 flex items-start gap-2"><span className="text-rose-400 mt-0.5">→</span>Advise SME to improve liquidity</li>
-                        <li className="text-sm text-slate-300 flex items-start gap-2"><span className="text-rose-400 mt-0.5">→</span>Invite reapplication after restructuring</li>
+                        <li className="text-sm flex items-start gap-2" style={{ color: 'oklch(0.75 0.015 75)' }}><span style={{ color: 'var(--danger)' }}>→</span>Decline funding request</li>
+                        <li className="text-sm flex items-start gap-2" style={{ color: 'oklch(0.75 0.015 75)' }}><span style={{ color: 'var(--danger)' }}>→</span>Advise SME to improve liquidity</li>
+                        <li className="text-sm flex items-start gap-2" style={{ color: 'oklch(0.75 0.015 75)' }}><span style={{ color: 'var(--danger)' }}>→</span>Invite reapplication after restructuring</li>
                       </>)}
                     </ul>
                   </div>
@@ -1797,297 +1901,229 @@ export default function FinSightApp() {
             );
           })()}
 
-          {/* AIStressTestModule — State 1: inactive trigger, State 2: interactive workspace */}
-          <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+          {/* Stress Test module */}
+          <div className="r-panel overflow-hidden">
             {!isStressTestActive ? (
               <div className="p-8">
                 <div className="flex items-start gap-4 mb-6">
-                  <div className="p-3 bg-indigo-600 rounded-xl flex-shrink-0">
-                    <Brain className="h-6 w-6 text-white" />
+                  <div className="p-3 rounded shrink-0" style={{ background: 'var(--navy-950)' }}>
+                    <Brain className="h-6 w-6" style={{ color: 'var(--panel)' }} strokeWidth={1.5} />
                   </div>
                   <div>
-                    <h2 className="text-lg font-bold text-white mb-1">Predictive Risk & Covenant Stress Test</h2>
-                    <p className="text-sm text-slate-400">Simulate future cash flow momentum to project covenant breaches and liquidity risk.</p>
+                    <h2 className="text-base font-bold mb-1">Predictive Risk &amp; Covenant Stress Test</h2>
+                    <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>Simulate future cash flow momentum to project covenant breaches and liquidity risk.</p>
                   </div>
                 </div>
                 {isForecasting ? (
-                  <div className="flex items-center gap-3 text-slate-300 text-sm">
-                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-400" />
+                  <div className="flex items-center gap-3 text-sm" style={{ color: 'var(--ink-muted)' }}>
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2" style={{ borderColor: 'var(--signal)' }} />
                     Running LightGBM inference...
                   </div>
                 ) : financialData.isManualEntry ? (
-                  // F-19: forecast requires a monthly cash-flow time series; manual entry only provides annual totals
-                  <div className="flex items-start gap-3 px-4 py-3 bg-slate-700 border border-slate-600 rounded-xl text-sm text-slate-300">
-                    <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                    <span>
-                      Monthly cash flow history is required to run the forecast.
-                      Upload a CSV with monthly data to enable this feature.
-                    </span>
+                  // F-19
+                  <div className="flex items-start gap-3 px-4 py-3 rounded text-sm" style={{ background: 'var(--surface)', border: '1px solid var(--hairline)', color: 'var(--ink-muted)' }}>
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" style={{ color: 'var(--caution)' }} strokeWidth={1.5} />
+                    Monthly cash flow history is required to run the forecast. Upload a CSV with monthly data to enable this feature.
                   </div>
                 ) : (
-                  <button
-                    onClick={runStressTest}
-                    className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-colors"
-                  >
-                    <Zap className="h-4 w-4" />
-                    Run 6-Month AI Liquidity Forecast
+                  <button onClick={runStressTest} className="r-btn-signal px-6 py-3 text-sm gap-2">
+                    <Zap className="h-4 w-4" strokeWidth={1.5} />Run 6-Month AI Liquidity Forecast
                   </button>
                 )}
               </div>
             ) : forecastData ? (
               <div>
-                {/* Module header */}
-                <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between">
+                <div className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--hairline)' }}>
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-indigo-600 rounded-lg">
-                      <Brain className="h-4 w-4 text-white" />
+                    <div className="p-2 rounded shrink-0" style={{ background: 'var(--navy-950)' }}>
+                      <Brain className="h-4 w-4" style={{ color: 'var(--panel)' }} strokeWidth={1.5} />
                     </div>
                     <div>
-                      <h2 className="text-sm font-bold text-white">Predictive Risk & Covenant Stress Test</h2>
-                      <p className="text-xs text-slate-400">
-                        {forecastData.summary.forecastMethod === 'ARIMA' ? 'ARIMA' : 'Exponential Smoothing'} 6-month projection — move slider to project covenant impact
+                      <p className="text-sm font-bold">Predictive Risk &amp; Covenant Stress Test</p>
+                      <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        {forecastData.summary.forecastMethod === 'ARIMA' ? 'ARIMA' : 'Exponential Smoothing'} 6-month projection
                       </p>
                       {forecastData.summary.arimaFellBack && (
-                        <p className="text-xs text-amber-500 mt-0.5">· Advanced model unavailable for this data; used Exponential Smoothing instead.</p>
+                        <p className="text-xs mt-0.5" style={{ color: 'var(--caution)' }}>Advanced model unavailable; used Exponential Smoothing instead.</p>
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-                      forecastData.summary.trend === 'Growing' ? 'bg-emerald-900 text-emerald-300'
-                      : forecastData.summary.trend === 'Declining' ? 'bg-rose-900 text-rose-300'
-                      : 'bg-slate-700 text-slate-300'
-                    }`}>{forecastData.summary.trend}</span>
-                    <span className="text-xs text-slate-400">
-                      Forecast confidence:{' '}
-                      <span className={`font-bold ${
-                        forecastData.summary.confidenceTier === 'narrow'   ? 'text-emerald-400'
-                        : forecastData.summary.confidenceTier === 'wide'   ? 'text-amber-400'
-                        : forecastData.summary.confidenceTier              ? 'text-slate-300'
-                        : 'text-slate-500'
-                      }`}>
-                        {forecastData.summary.confidenceTier === 'narrow'   ? 'High (24+ months of history)'
-                         : forecastData.summary.confidenceTier === 'standard' ? 'Moderate (12–23 months)'
-                         : forecastData.summary.confidenceTier === 'wide'   ? 'Low (under 12 months)'
-                         : 'unavailable'}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className={forecastData.summary.trend === 'Growing' ? 'r-badge-safe' : forecastData.summary.trend === 'Declining' ? 'r-badge-danger' : 'r-badge-neutral'}>
+                      {forecastData.summary.trend}
+                    </span>
+                    <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      Confidence: <span className="font-bold" style={{ color: forecastData.summary.confidenceTier === 'narrow' ? 'var(--safe)' : forecastData.summary.confidenceTier === 'wide' ? 'var(--caution)' : 'var(--ink)' }}>
+                        {forecastData.summary.confidenceTier === 'narrow' ? 'High (24+ mo)' : forecastData.summary.confidenceTier === 'standard' ? 'Moderate (12-23 mo)' : forecastData.summary.confidenceTier === 'wide' ? 'Low (<12 mo)' : 'unavailable'}
                       </span>
                     </span>
                     {forecastData.summary.forecastMethod && (() => {
                       const histCount = (financialData?.monthlyRevenue ?? []).filter(m => m?.cashFlow != null).length;
                       const label = forecastData.summary.forecastMethod === 'ARIMA' ? 'ARIMA' : 'Exponential Smoothing';
                       return (
-                        <span className="text-xs text-slate-400">
-                          Model:{' '}
-                          <span className={`font-bold ${
-                            forecastData.summary.forecastMethod === 'ARIMA'            ? 'text-emerald-400'
-                            : forecastData.summary.confidenceTier === 'wide'           ? 'text-amber-400'
-                            : 'text-slate-300'
-                          }`}>
-                            {label} ({histCount} month{histCount !== 1 ? 's' : ''} of history)
-                          </span>
+                        <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                          Model: <span className="font-bold" style={{ color: forecastData.summary.forecastMethod === 'ARIMA' ? 'var(--safe)' : 'var(--ink-muted)' }}>{label} ({histCount} mo)</span>
                         </span>
                       );
                     })()}
-                    <button
-                      onClick={() => { setIsStressTestActive(false); setForecastData(null); }}
-                      className="text-xs text-slate-400 hover:text-white px-2.5 py-1 hover:bg-slate-700 rounded-lg transition-colors"
-                    >
-                      Reset
-                    </button>
+                    <button onClick={() => { setIsStressTestActive(false); setForecastData(null); }}
+                      className="r-btn-ghost text-xs px-2.5 py-1">Reset</button>
                   </div>
                 </div>
 
-                {/* Row 1: Timeline slider + Chart */}
                 <div className="p-6 space-y-4">
-                  <div className="flex items-center gap-4 bg-slate-900 rounded-xl px-5 py-3">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Forecast Month</span>
-                    <div className="flex-1 flex items-center gap-3">
-                      <span className="text-xs text-slate-500">M1</span>
-                      <input
-                        type="range" min={1} max={6} step={1}
-                        value={activeForecastMonth}
+                  <div className="flex items-center gap-4 px-5 py-3 rounded" style={{ background: 'var(--surface)', border: '1px solid var(--hairline)' }}>
+                    <span className="r-eyebrow whitespace-nowrap">Forecast Month</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>M1</span>
+                      <input type="range" min={1} max={6} step={1} value={activeForecastMonth}
                         onChange={(e) => setActiveForecastMonth(parseInt(e.target.value))}
-                        className="flex-1 accent-indigo-500"
-                      />
-                      <span className="text-xs text-slate-500">M6</span>
+                        className="w-48" style={{ accentColor: 'var(--signal)' }} />
+                      <span className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>M6</span>
                     </div>
-                    <span className="text-sm font-bold text-indigo-300 whitespace-nowrap bg-indigo-900 px-3 py-1 rounded-lg">Month {activeForecastMonth}</span>
+                    <span className="text-sm font-bold tabular px-3 py-1 rounded" style={{ background: 'var(--navy-950)', color: 'var(--panel)' }}>
+                      Month {activeForecastMonth}
+                    </span>
                   </div>
 
-                  <div className="h-64 bg-slate-900 rounded-xl p-4">
+                  <div className="h-64 rounded p-4" style={{ background: 'var(--surface)', border: '1px solid var(--hairline)' }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <ComposedChart data={forecastData.combined}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
-                        <XAxis dataKey="month" stroke="#475569" style={{ fontSize: '10px' }} tick={{ fill: '#64748B' }} />
-                        <YAxis stroke="#475569" style={{ fontSize: '10px' }} tick={{ fill: '#64748B' }} tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
-                        <Tooltip
-                          contentStyle={{ backgroundColor: '#0F172A', border: '1px solid #334155', borderRadius: '8px', fontSize: '12px', color: '#E2E8F0' }}
-                          formatter={(value, name) => [
-                            value >= 1000000 ? `${(value/1000000).toFixed(2)}M SAR` : `${(value/1000).toFixed(0)}K SAR`,
-                            name === 'actualCashFlow' ? 'Cash Flow' : name === 'forecastedCashFlow' ? 'Forecast' : name
-                          ]}
-                        />
-                        <Area dataKey="upperBound" fill="#6366F1" stroke="none" fillOpacity={0.15} />
-                        <Area dataKey="lowerBound" fill="#6366F1" stroke="none" fillOpacity={0.15} />
-                        <Line dataKey="actualCashFlow" stroke="#94A3B8" strokeWidth={2} dot={{ r: 2, fill: '#94A3B8' }} name="actualCashFlow" />
-                        <Line dataKey="forecastedCashFlow" stroke="#818CF8" strokeWidth={2.5} strokeDasharray="5 5" dot={{ r: 2, fill: '#818CF8' }} name="forecastedCashFlow" />
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--hairline)" />
+                        <XAxis dataKey="month" stroke="var(--ink-faint)" style={{ fontSize: '10px' }} tick={{ fill: 'var(--ink-faint)' }} />
+                        <YAxis stroke="var(--ink-faint)" style={{ fontSize: '10px' }} tick={{ fill: 'var(--ink-faint)' }} tickFormatter={(v) => v >= 1e6 ? `${(v/1e6).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
+                        <Tooltip contentStyle={ttSt} formatter={(value, name) => [value >= 1e6 ? `${(value/1e6).toFixed(2)}M SAR` : `${(value/1000).toFixed(0)}K SAR`, name === 'actualCashFlow' ? 'Cash Flow' : name === 'forecastedCashFlow' ? 'Forecast' : name]} />
+                        <Area dataKey="upperBound" fill="var(--signal)" stroke="none" fillOpacity={0.08} />
+                        <Area dataKey="lowerBound" fill="var(--signal)" stroke="none" fillOpacity={0.08} />
+                        <Line dataKey="actualCashFlow" stroke="var(--navy-700)" strokeWidth={2} dot={{ r: 2, fill: 'var(--navy-700)' }} />
+                        <Line dataKey="forecastedCashFlow" stroke="var(--signal)" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 2, fill: 'var(--signal)' }} />
                         {forecastData.combined.findIndex(d => d.forecastedCashFlow !== undefined) > 0 && (
-                          <ReferenceLine
-                            x={forecastData.combined[forecastData.combined.findIndex(d => d.forecastedCashFlow !== undefined)].month}
-                            stroke="#475569" strokeDasharray="4 4"
-                            label={{ value: 'Forecast Start', position: 'insideTopRight', fontSize: 9, fill: '#475569' }}
-                          />
+                          <ReferenceLine x={forecastData.combined[forecastData.combined.findIndex(d => d.forecastedCashFlow !== undefined)].month}
+                            stroke="var(--ink-faint)" strokeDasharray="4 4"
+                            label={{ value: 'Forecast Start', position: 'insideTopRight', fontSize: 9, fill: 'var(--ink-faint)' }} />
                         )}
-                        <ReferenceLine
-                          x={forecastData.forecast[activeForecastMonth - 1].month}
-                          stroke="#6366F1" strokeWidth={2}
-                          label={{ value: `M${activeForecastMonth}`, position: 'insideTopLeft', fontSize: 10, fill: '#818CF8' }}
-                        />
+                        <ReferenceLine x={forecastData.forecast[activeForecastMonth - 1].month}
+                          stroke="var(--signal)" strokeWidth={2}
+                          label={{ value: `M${activeForecastMonth}`, position: 'insideTopLeft', fontSize: 10, fill: 'var(--signal)' }} />
                       </ComposedChart>
                     </ResponsiveContainer>
                   </div>
 
                   <div className="flex items-center gap-6 justify-center">
-                    <div className="flex items-center gap-2 text-xs text-slate-500"><div className="w-5 h-0.5 bg-slate-400 rounded" />Historical CF</div>
-                    <div className="flex items-center gap-2 text-xs text-slate-500"><div className="w-5 h-0.5 bg-indigo-400 rounded" style={{ backgroundImage: 'repeating-linear-gradient(90deg, #818CF8 0px, #818CF8 4px, transparent 4px, transparent 8px)' }} />Forecast</div>
-                    <div className="flex items-center gap-2 text-xs text-slate-500"><div className="w-5 h-3 bg-indigo-500 rounded opacity-20" />Confidence Band</div>
-                    <div className="flex items-center gap-2 text-xs text-slate-500"><div className="w-0.5 h-4 bg-indigo-500 rounded" />Selected Month</div>
+                    <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--ink-muted)' }}><div className="w-5 h-0.5 rounded" style={{ background: 'var(--navy-700)' }} />Historical CF</div>
+                    <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--ink-muted)' }}><div className="w-5 h-0.5 rounded" style={{ background: 'var(--signal)' }} />Forecast</div>
+                    <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--ink-muted)' }}><div className="w-5 h-3 rounded opacity-25" style={{ background: 'var(--signal)' }} />Confidence Band</div>
                   </div>
                 </div>
 
-                {/* Row 2: Dynamic covenant cards + static baseline */}
+                {/* Row 2: Covenant cards */}
                 {(() => {
                   const forecastMonth = forecastData.forecast[activeForecastMonth - 1];
                   const baselineMonthlyCF = (financialData.cashFlow || 0) / 12;
                   const projectedMonthlyCF = forecastMonth?.forecastedCashFlow ?? baselineMonthlyCF;
                   const projectedAnnualCF = projectedMonthlyCF * 12;
-                  // Used only for projectedFinData / funding-score estimate below — not for covenant cards
+                  // Used only for projectedFinData / funding-score estimate — not for covenant cards
                   const cumulativeCFDelta = (projectedMonthlyCF - baselineMonthlyCF) * activeForecastMonth;
                   const projectedCurrentAssets = Math.max(0, (financialData.currentAssets ?? 0) + cumulativeCFDelta);
-
-                  // F-04: use backend per-month ratios — proxy math removed
+                  // F-04: use backend per-month ratios
                   const projectedDSCR         = forecastMonth?.dscr         ?? null;
                   const projectedCurrentRatio = forecastMonth?.currentRatio ?? null;
                   const projectedQuickRatio   = forecastMonth?.quickRatio   ?? null;
-
                   const standards = industryStandards[selectedIndustry] || industryStandards.Default;
-                  const dscrBreach = projectedDSCR !== null && projectedDSCR < 1.0;
+                  const dscrBreach         = projectedDSCR !== null && projectedDSCR < 1.0;
                   const currentRatioBreach = projectedCurrentRatio !== null && projectedCurrentRatio < standards.minCurrentRatio;
-                  const quickRatioBreach = projectedQuickRatio !== null && projectedQuickRatio < standards.minQuickRatio;
-
-                  // revenue held static — back-deriving it as expenses + cashFlow is an accounting falsehood
-                  const projectedFinData = {
-                    ...financialData,
-                    cashFlow: projectedAnnualCF,
-                    currentAssets: projectedCurrentAssets,
-                  };
+                  const quickRatioBreach   = projectedQuickRatio !== null && projectedQuickRatio < standards.minQuickRatio;
+                  // revenue held static
+                  const projectedFinData = { ...financialData, cashFlow: projectedAnnualCF, currentAssets: projectedCurrentAssets };
                   const projectedAssessment = computeAssessment(projectedFinData);
                   const baseline = assessmentResults.ratios;
-
-                  // F-07: fallback was projectedAssessment.probabilityOfDefault which buildAssessment never returns
+                  // F-07
                   const podValue = forecastMonth?.probabilityOfDefault ?? null;
-
+                  const cvSt = (breach) => ({
+                    background: breach ? 'var(--danger-tint)' : 'var(--surface)',
+                    border: `1px solid ${breach ? 'color-mix(in oklch, var(--danger) 25%, transparent)' : 'var(--hairline)'}`,
+                  });
                   return (
                     <div className="px-6 pb-6 space-y-4">
                       <div className="flex items-center gap-3">
-                        <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Month {activeForecastMonth} — Projected Covenant Impact</span>
-                        <div className="h-px flex-1 bg-slate-700" />
+                        <span className="r-eyebrow">Month {activeForecastMonth} — Projected Covenant Impact</span>
+                        <div className="h-px flex-1" style={{ background: 'var(--hairline)' }} />
                       </div>
-
-                      {/* PoD Risk Gauge — uses API value when available, falls back to local projection */}
                       {podValue != null && (
-                        <div className="bg-slate-900 border border-slate-700 rounded-xl px-5 py-4">
+                        <div className="r-panel px-5 py-4">
                           <div className="flex justify-between items-center mb-2">
-                            <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Prob. of Default — Month {activeForecastMonth}</p>
-                            <span className={`font-mono text-base font-bold ${podValue < 0.2 ? 'text-emerald-400' : podValue < 0.6 ? 'text-amber-400' : 'text-rose-400'}`}>
+                            <p className="r-eyebrow">Prob. of Default — Month {activeForecastMonth}</p>
+                            <span className="font-mono text-base font-bold tabular" style={{ color: podValue < 0.2 ? 'var(--safe)' : podValue < 0.6 ? 'var(--caution)' : 'var(--danger)' }}>
                               {(podValue * 100).toFixed(2)}%
                             </span>
                           </div>
-                          <div className="w-full bg-slate-700 rounded-full h-2.5 overflow-hidden">
-                            <div
-                              className={`h-full transition-all duration-500 ${podValue < 0.2 ? 'bg-emerald-500' : podValue < 0.6 ? 'bg-amber-500' : 'bg-rose-500'}`}
-                              style={{ width: `${podValue * 100}%` }}
-                            />
+                          <div className="w-full h-2.5 rounded-full overflow-hidden" style={{ background: 'var(--hairline)' }}>
+                            <div className="h-full transition-all duration-500 rounded-full"
+                              style={{ width: `${podValue * 100}%`, background: podValue < 0.2 ? 'var(--safe)' : podValue < 0.6 ? 'var(--caution)' : 'var(--danger)' }} />
                           </div>
                         </div>
                       )}
-
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        {/* Left: dynamic covenants updated by slider */}
                         <div className="space-y-3">
-                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Dynamic Covenants</p>
+                          <p className="r-eyebrow">Dynamic Covenants</p>
                           <div className="grid grid-cols-2 gap-3">
-                            {/* Projected Score card — full width */}
-                            <div className="col-span-2 bg-slate-900 border border-slate-700 rounded-xl p-4 flex items-center gap-4">
+                            <div className="col-span-2 r-panel p-4 flex items-center gap-4">
                               <div>
-                                <p className="text-xs text-slate-400 mb-1">
+                                <p className="text-xs mb-1" style={{ color: 'var(--ink-muted)' }}>
                                   Projected Funding Score
-                                  <span className="ml-1.5 text-slate-600 font-normal">(estimated — cash flow projected, revenue held static)</span>
+                                  <span className="ml-1" style={{ color: 'var(--ink-faint)' }}>(cash flow projected, revenue held static)</span>
                                 </p>
-                                <p className={`text-3xl font-bold ${parseFloat(projectedAssessment.overallScore) >= 70 ? 'text-emerald-400' : parseFloat(projectedAssessment.overallScore) >= 50 ? 'text-amber-400' : 'text-rose-400'}`}>
+                                <p className="text-3xl font-bold tabular" style={{ color: scoreColor(parseFloat(projectedAssessment.overallScore)) }}>
                                   {projectedAssessment.overallScore}%
                                 </p>
                               </div>
-                              <span className={`text-xs font-bold px-3 py-1.5 rounded-lg ${
-                                projectedAssessment.decision === 'APPROVED' ? 'bg-emerald-900 text-emerald-300'
-                                : projectedAssessment.decision === 'REVIEW'  ? 'bg-amber-900 text-amber-300'
-                                : 'bg-rose-900 text-rose-300'
-                              }`}>{projectedAssessment.decision}</span>
+                              <span className={`${decBadgeCls(projectedAssessment.decision)}`} style={{ fontSize: '12px', padding: '4px 10px' }}>
+                                {projectedAssessment.decision}
+                              </span>
                             </div>
-
-                            {/* F-07: second PoD gauge removed — projectedAssessment comes from the local
-                                engine (buildAssessment) which never returns probabilityOfDefault, so
-                                this block always evaluated to null and never rendered */}
-
-                            {/* DSCR */}
-                            <div className={`rounded-xl p-4 border ${dscrBreach ? 'bg-rose-950 border-rose-700' : 'bg-slate-900 border-slate-700'}`}>
+                            {/* F-07: second PoD gauge removed */}
+                            <div className="rounded p-4" style={cvSt(dscrBreach)}>
                               <div className="flex items-center justify-between mb-2">
-                                <p className={`text-xs font-semibold ${dscrBreach ? 'text-rose-300' : 'text-slate-400'}`}>DSCR</p>
-                                {dscrBreach && <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />}
+                                <p className="r-eyebrow" style={{ color: dscrBreach ? 'var(--danger)' : undefined }}>DSCR</p>
+                                {dscrBreach && <AlertTriangle className="h-3.5 w-3.5" style={{ color: 'var(--danger)' }} strokeWidth={1.5} />}
                               </div>
-                              <p className={`text-xl font-bold ${dscrBreach ? 'text-rose-300' : 'text-white'}`}>
+                              <p className="text-xl font-bold tabular" style={{ color: dscrBreach ? 'var(--danger)' : 'var(--ink)' }}>
                                 {projectedDSCR !== null ? `${projectedDSCR.toFixed(2)}x` : 'N/A'}
                               </p>
-                              <p className={`text-xs mt-1 ${dscrBreach ? 'text-rose-400 font-semibold' : 'text-slate-600'}`}>
-                                {dscrBreach ? 'Breach — below 1.0x' : projectedDSCR !== null ? `Min: 1.0x` : 'No debt service data'}
+                              <p className="text-xs mt-1" style={{ color: dscrBreach ? 'var(--danger)' : 'var(--ink-faint)' }}>
+                                {dscrBreach ? 'Breach — below 1.0x' : projectedDSCR !== null ? 'Min: 1.0x' : 'No debt service data'}
                               </p>
                             </div>
-
-                            {/* Current Ratio */}
-                            <div className={`rounded-xl p-4 border ${currentRatioBreach ? 'bg-rose-950 border-rose-700' : 'bg-slate-900 border-slate-700'}`}>
+                            <div className="rounded p-4" style={cvSt(currentRatioBreach)}>
                               <div className="flex items-center justify-between mb-2">
-                                <p className={`text-xs font-semibold ${currentRatioBreach ? 'text-rose-300' : 'text-slate-400'}`}>Current Ratio</p>
-                                {currentRatioBreach && <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />}
+                                <p className="r-eyebrow" style={{ color: currentRatioBreach ? 'var(--danger)' : undefined }}>Current Ratio</p>
+                                {currentRatioBreach && <AlertTriangle className="h-3.5 w-3.5" style={{ color: 'var(--danger)' }} strokeWidth={1.5} />}
                               </div>
-                              <p className={`text-xl font-bold ${currentRatioBreach ? 'text-rose-300' : 'text-white'}`}>
+                              <p className="text-xl font-bold tabular" style={{ color: currentRatioBreach ? 'var(--danger)' : 'var(--ink)' }}>
                                 {projectedCurrentRatio !== null ? `${projectedCurrentRatio.toFixed(2)}x` : 'N/A'}
                               </p>
-                              <p className={`text-xs mt-1 ${currentRatioBreach ? 'text-rose-400 font-semibold' : 'text-slate-600'}`}>
+                              <p className="text-xs mt-1" style={{ color: currentRatioBreach ? 'var(--danger)' : 'var(--ink-faint)' }}>
                                 {currentRatioBreach ? `Breach — below ${standards.minCurrentRatio}x` : `Min: ${standards.minCurrentRatio}x`}
                               </p>
                             </div>
-
-                            {/* Quick Ratio — full width */}
-                            <div className={`col-span-2 rounded-xl p-4 border ${quickRatioBreach ? 'bg-rose-950 border-rose-700' : 'bg-slate-900 border-slate-700'}`}>
+                            <div className="col-span-2 rounded p-4" style={cvSt(quickRatioBreach)}>
                               <div className="flex items-center justify-between mb-2">
-                                <p className={`text-xs font-semibold ${quickRatioBreach ? 'text-rose-300' : 'text-slate-400'}`}>Quick Ratio</p>
-                                {quickRatioBreach && <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />}
+                                <p className="r-eyebrow" style={{ color: quickRatioBreach ? 'var(--danger)' : undefined }}>Quick Ratio</p>
+                                {quickRatioBreach && <AlertTriangle className="h-3.5 w-3.5" style={{ color: 'var(--danger)' }} strokeWidth={1.5} />}
                               </div>
-                              <p className={`text-xl font-bold ${quickRatioBreach ? 'text-rose-300' : 'text-white'}`}>
+                              <p className="text-xl font-bold tabular" style={{ color: quickRatioBreach ? 'var(--danger)' : 'var(--ink)' }}>
                                 {projectedQuickRatio !== null ? `${projectedQuickRatio.toFixed(2)}x` : 'N/A (inventory data not provided)'}
                               </p>
-                              <p className={`text-xs mt-1 ${quickRatioBreach ? 'text-rose-400 font-semibold' : 'text-slate-600'}`}>
+                              <p className="text-xs mt-1" style={{ color: quickRatioBreach ? 'var(--danger)' : 'var(--ink-faint)' }}>
                                 {quickRatioBreach ? `Breach — below ${standards.minQuickRatio}x` : projectedQuickRatio !== null ? `Min: ${standards.minQuickRatio}x` : ''}
                               </p>
                             </div>
                           </div>
                         </div>
-
-                        {/* Right: static structural baseline */}
-                        <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 flex flex-col">
+                        <div className="r-panel p-5 flex flex-col" style={{ background: 'var(--surface)' }}>
                           <div className="flex items-center gap-2 mb-4 flex-wrap">
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Structural Metrics</p>
-                            <span className="px-2.5 py-0.5 bg-slate-700 text-slate-300 text-xs font-bold rounded-full">Held Static (Operating Baseline)</span>
+                            <p className="r-eyebrow">Structural Metrics</p>
+                            <span className="r-badge-neutral">Held Static</span>
                           </div>
                           <div className="grid grid-cols-2 gap-5 flex-1">
                             {[
@@ -2096,13 +2132,13 @@ export default function FinSightApp() {
                               { label: 'ROA',           raw: baseline.roa,          suffix: baseline.roa ? '%' : '' },
                               { label: 'EBITDA Margin', raw: baseline.ebitdaMargin, suffix: baseline.ebitdaMargin ? '%' : '' },
                             ].map(({ label, raw, suffix }) => (
-                              <div key={label} className="border-l-2 border-slate-700 pl-3">
-                                <p className="text-xs text-slate-500 mb-0.5">{label}</p>
-                                <p className="text-base font-bold text-slate-300">{raw != null ? `${raw}${suffix}` : 'N/A'}</p>
+                              <div key={label} className="pl-3" style={{ borderLeft: '2px solid var(--hairline)' }}>
+                                <p className="text-xs mb-0.5" style={{ color: 'var(--ink-faint)' }}>{label}</p>
+                                <p className="text-base font-bold tabular">{raw != null ? `${raw}${suffix}` : 'N/A'}</p>
                               </div>
                             ))}
                           </div>
-                          <p className="text-xs text-slate-700 mt-5 italic">Reflects Month 0 balance sheet — unchanged by the forecast slider.</p>
+                          <p className="text-xs mt-5 italic" style={{ color: 'var(--ink-faint)' }}>Month 0 balance sheet — unchanged by the forecast slider.</p>
                         </div>
                       </div>
                     </div>
@@ -2112,119 +2148,99 @@ export default function FinSightApp() {
             ) : null}
           </div>
 
-          <LoanRecommendationCard
-            financialData={financialData}
-            industry={selectedIndustry}
-          />
+          <LoanRecommendationCard financialData={financialData} industry={selectedIndustry} />
 
         </main>
       </div>
     );
   }
 
-  // UI: Portfolio Page — assessment history table with summary KPI cards
+  // UI: Portfolio Page
   if (currentPage === 'portfolio') {
     return (
-      <div className="min-h-screen bg-slate-50">
-        <header className="bg-slate-900 px-8 py-4 flex items-center justify-between sticky top-0 z-10 shadow-md">
-          <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="FinSight" className="h-20 w-auto" />
-            <span className="ml-4 text-slate-400 text-sm font-medium border-l border-slate-700 pl-4">SME Portfolio</span>
-          </div>
-          <div className="flex items-center gap-3">
-            {financialData && (
-              <button onClick={() => setCurrentPage('dashboard')} className="flex items-center gap-2 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-sm font-medium transition-colors">
-                <ArrowLeft className="h-4 w-4" />Dashboard
-              </button>
-            )}
-            <button onClick={() => { setCurrentPage('upload'); setFinancialData(null); setUploadedFile(null); setAssessmentResults(null); setForecastData(null); setPortfolioViewMeta(null); setIsStressTestActive(false); setActiveForecastMonth(1); }} className="flex items-center gap-2 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg text-sm font-medium transition-colors">
-              <Upload className="h-4 w-4" />New Assessment
-            </button>
-            <button onClick={() => { localStorage.removeItem('finsight_auth'); window.location.href = '/'; }} className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-semibold transition-colors">
-              Log Out
-            </button>
-          </div>
-        </header>
+      <div className="min-h-screen" style={{ background: 'var(--surface)' }}>
+        <NavBar currentPage={currentPage} setCurrentPage={setCurrentPage}
+          financialData={financialData} assessmentResults={assessmentResults} portfolio={portfolio} />
 
-        <main className="w-full px-8 py-8 max-w-7xl mx-auto">
-          <div className="flex items-center justify-between mb-8">
+        <main className="max-w-[1320px] mx-auto px-8 py-8">
+          <div className="flex items-center justify-between mb-7">
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">Assessment History</h1>
-              <p className="text-sm text-slate-500 mt-1">{portfolio.length} companies assessed — click a row to open the full report</p>
+              <h1 className="text-2xl font-bold">Assessment History</h1>
+              <p className="text-sm mt-1" style={{ color: 'var(--ink-muted)' }}>
+                {portfolio.length} {portfolio.length === 1 ? 'company' : 'companies'} assessed — click a row to open the full report
+              </p>
             </div>
+            <button onClick={() => { setCurrentPage('upload'); setFinancialData(null); setUploadedFile(null); setAssessmentResults(null); setForecastData(null); setPortfolioViewMeta(null); setIsStressTestActive(false); setActiveForecastMonth(1); }}
+              className="r-btn-ghost px-4 py-2 text-sm gap-2">
+              <Upload className="h-4 w-4" strokeWidth={1.5} />New Assessment
+            </button>
           </div>
 
           {portfolio.length === 0 ? (
-            <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 p-16 text-center">
-              <Building2 className="h-16 w-16 text-slate-300 mx-auto mb-4" />
-              <h2 className="text-2xl font-bold text-slate-400 mb-2">No assessments yet</h2>
-              <p className="text-slate-500">Run your first funding assessment to see it here.</p>
+            <div className="r-panel p-16 text-center">
+              <Building2 className="h-12 w-12 mx-auto mb-4" style={{ color: 'var(--hairline)' }} strokeWidth={1.5} />
+              <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--ink-muted)' }}>No assessments yet</h2>
+              <p className="text-sm" style={{ color: 'var(--ink-faint)' }}>Run your first funding assessment to see it here.</p>
             </div>
           ) : (
             <>
-              {/* Summary KPI cards */}
-              <div className="grid grid-cols-3 gap-6 mb-8">
-                <div className="bg-white rounded-2xl shadow-lg p-6">
-                  <p className="text-sm font-medium text-slate-600 mb-1">Total Assessed</p>
-                  <p className="text-4xl font-bold text-slate-900">{portfolio.length}</p>
+              <div className="grid grid-cols-3 gap-5 mb-7">
+                <div className="r-panel p-5">
+                  <p className="r-eyebrow mb-2">Total Assessed</p>
+                  <p className="text-4xl font-bold tabular">{portfolio.length}</p>
                 </div>
-                <div className="bg-emerald-50 rounded-2xl shadow-lg p-6">
-                  <p className="text-sm font-medium text-emerald-700 mb-1">Approved</p>
-                  <p className="text-4xl font-bold text-emerald-700">{portfolio.filter(p => p.decision === 'APPROVED').length}</p>
+                <div className="r-panel p-5" style={{ background: 'var(--safe-tint)' }}>
+                  <p className="r-eyebrow mb-2" style={{ color: 'var(--safe)' }}>Approved</p>
+                  <p className="text-4xl font-bold tabular" style={{ color: 'var(--safe)' }}>{portfolio.filter(p => p.decision === 'APPROVED').length}</p>
                 </div>
-                <div className="bg-red-50 rounded-2xl shadow-lg p-6">
-                  <p className="text-sm font-medium text-red-700 mb-1">Rejected</p>
-                  <p className="text-4xl font-bold text-red-700">{portfolio.filter(p => p.decision === 'REJECTED').length}</p>
+                <div className="r-panel p-5" style={{ background: 'var(--danger-tint)' }}>
+                  <p className="r-eyebrow mb-2" style={{ color: 'var(--danger)' }}>Rejected</p>
+                  <p className="text-4xl font-bold tabular" style={{ color: 'var(--danger)' }}>{portfolio.filter(p => p.decision === 'REJECTED').length}</p>
                 </div>
               </div>
 
-              {/* Assessment history table */}
-              <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
-                <div className="bg-slate-900 px-8 py-5">
-                  <h2 className="text-xl font-bold text-white">Assessment History</h2>
+              <div className="r-panel overflow-hidden">
+                <div className="px-6 py-4" style={{ background: 'var(--navy-950)', borderBottom: '1px solid var(--navy-800)' }}>
+                  <p className="text-sm font-bold" style={{ color: 'var(--panel)' }}>Assessment History</p>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-slate-50 border-b border-slate-200">
+                  <table className="r-table">
+                    <thead>
                       <tr>
-                        <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Company</th>
-                        <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Date</th>
-                        <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Revenue</th>
-                        <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Score</th>
-                        <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Current Ratio</th>
-                        <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">EBITDA Margin</th>
-                        <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">DSCR</th>
-                        <th className="text-left px-6 py-4 text-sm font-semibold text-slate-600">Decision</th>
+                        {['Company', 'Date', 'Revenue', 'Score', 'Current Ratio', 'EBITDA Margin', 'DSCR', 'Decision'].map(h => (
+                          <th key={h}>{h}</th>
+                        ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody>
                       {portfolio.map((entry) => (
-                        <tr
-                          key={entry.id}
+                        <tr key={entry.id}
                           onClick={() => openPortfolioEntry(entry)}
-                          className={`transition-colors ${entry.assessmentSnapshot ? 'hover:bg-indigo-50 cursor-pointer' : 'hover:bg-slate-50 cursor-not-allowed opacity-70'}`}
-                          title={entry.assessmentSnapshot ? 'Click to view full assessment report' : 'Full report not saved for this entry'}
-                        >
-                          <td className="px-6 py-4">
-                            <div className="font-semibold text-slate-900">{entry.companyName}</div>
-                            {entry.knockouts > 0 && <div className="text-xs text-red-600 font-medium mt-0.5">{entry.knockouts} disqualifier{entry.knockouts > 1 ? 's' : ''}</div>}
-                            {entry.assessmentSnapshot && <div className="text-xs text-indigo-600 font-medium mt-0.5">View full report →</div>}
+                          className="transition-colors"
+                          style={{ cursor: entry.assessmentSnapshot ? 'pointer' : 'not-allowed', opacity: entry.assessmentSnapshot ? 1 : 0.7 }}
+                          onMouseEnter={e => { if (entry.assessmentSnapshot) e.currentTarget.style.background = 'var(--surface)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = ''; }}>
+                          <td>
+                            <p className="font-semibold">{entry.companyName}</p>
+                            {entry.knockouts > 0 && <p className="text-[11px] mt-0.5 font-medium" style={{ color: 'var(--danger)' }}>{entry.knockouts} disqualifier{entry.knockouts > 1 ? 's' : ''}</p>}
+                            {entry.assessmentSnapshot && <p className="text-[11px] mt-0.5 font-medium" style={{ color: 'var(--signal)' }}>View report</p>}
                           </td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{entry.assessedAt}</td>
-                          <td className="px-6 py-4 text-sm font-medium text-slate-900">{(entry.revenue / 1000000).toFixed(1)}M SAR</td>
-                          <td className="px-6 py-4">
-                            <span className={`text-lg font-bold ${parseFloat(entry.overallScore) >= 70 ? 'text-emerald-600' : parseFloat(entry.overallScore) >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                          <td style={{ color: 'var(--ink-muted)' }}>{entry.assessedAt}</td>
+                          <td className="font-medium">{(entry.revenue / 1e6).toFixed(1)}M SAR</td>
+                          <td>
+                            <span className="text-lg font-bold tabular"
+                              style={{ color: parseFloat(entry.overallScore) >= 70 ? 'var(--safe)' : parseFloat(entry.overallScore) >= 50 ? 'var(--caution)' : 'var(--danger)' }}>
                               {entry.overallScore}%
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-sm text-slate-700">{entry.ratios.currentRatio}</td>
-                          <td className="px-6 py-4 text-sm text-slate-700">{(entry.ratios.ebitdaMargin ?? entry.ratios.profitMargin) + '%'}</td>
-                          <td className="px-6 py-4 text-sm text-slate-700">{entry.ratios.dscr}</td>
-                          <td className="px-6 py-4">
-                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${entry.decision === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' : entry.decision === 'REVIEW' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
-                              {entry.decision === 'APPROVED' && <CheckCircle className="h-3 w-3" />}
-                              {entry.decision === 'REVIEW'   && <AlertTriangle className="h-3 w-3" />}
-                              {entry.decision === 'REJECTED' && <XCircle className="h-3 w-3" />}
+                          <td style={{ color: 'var(--ink-muted)' }}>{entry.ratios.currentRatio}</td>
+                          <td style={{ color: 'var(--ink-muted)' }}>{(entry.ratios.ebitdaMargin ?? entry.ratios.profitMargin) + '%'}</td>
+                          <td style={{ color: 'var(--ink-muted)' }}>{entry.ratios.dscr}</td>
+                          <td>
+                            <span className={entry.decision === 'APPROVED' ? 'r-badge-safe' : entry.decision === 'REVIEW' ? 'r-badge-caution' : 'r-badge-danger'}>
+                              {entry.decision === 'APPROVED' && <CheckCircle className="h-3 w-3" strokeWidth={1.5} />}
+                              {entry.decision === 'REVIEW'   && <AlertTriangle className="h-3 w-3" strokeWidth={1.5} />}
+                              {entry.decision === 'REJECTED' && <XCircle className="h-3 w-3" strokeWidth={1.5} />}
                               {entry.decision}
                             </span>
                           </td>

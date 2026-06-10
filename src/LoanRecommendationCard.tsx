@@ -26,7 +26,6 @@ export interface LoanFinancialData {
   inventory?: number | null;
   retainedEarnings?: number | null;
   monthlyRevenue: MonthlyRow[];
-  // null-preserving parallel to monthlyRevenue — used for ML payloads (never carries chart estimates)
   historicalMonths?: MonthlyRow[];
   companyName?: string;
 }
@@ -43,8 +42,8 @@ interface Constraint {
 interface BackendLoanRec {
   base_max_capacity: number;
   stressed_max_capacity: number;
-  binding_constraint: string; // e.g. "dscr" | "debt_ebitda" | "de" | "icr"
-  status?: string;            // e.g. "NOT_RECOMMENDED_INSUFFICIENT_EARNINGS"
+  binding_constraint: string;
+  status?: string;
   ceilings: {
     dscr_ceiling?: number;
     debt_ebitda_ceiling?: number;
@@ -71,7 +70,6 @@ function useDebounce<T>(value: T, delay: number): T {
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
-// Accepts number | null | undefined and treats NaN / Infinity / null / undefined as 0
 function formatSAR(raw: number | null | undefined, compact?: boolean): string {
   const value = typeof raw === 'number' && isFinite(raw) ? raw : 0;
   if (compact) {
@@ -84,13 +82,10 @@ function formatSAR(raw: number | null | undefined, compact?: boolean): string {
 
 function getChartMax(constraints: Constraint[]): number {
   const positives = constraints.map(c => c.value).filter(v => v > 0);
-  return positives.length > 0
-    ? Math.max(Math.max(...positives) * 1.1, 5_000_000)
-    : 5_000_000;
+  return positives.length > 0 ? Math.max(Math.max(...positives) * 1.1, 5_000_000) : 5_000_000;
 }
 
-// Maps backend binding_constraint value → display key used in Constraint.key
-// F-16: backend sends short form ("dscr" | "debt_ebitda" | "de" | "icr") per BackendLoanRec interface
+// F-16: backend sends short form ("dscr" | "debt_ebitda" | "de" | "icr")
 const BINDING_KEY_MAP: Record<string, string> = {
   dscr:        'DSCR',
   debt_ebitda: 'Debt/EBITDA',
@@ -98,7 +93,6 @@ const BINDING_KEY_MAP: Record<string, string> = {
   icr:         'ICR',
 };
 
-/** Build constraint array from backend loan_recommendation object. */
 function buildConstraintsFromBackend(rec: BackendLoanRec): Constraint[] {
   const bindingKey = BINDING_KEY_MAP[(rec.binding_constraint ?? '').toLowerCase()] ?? '';
   const c = rec.ceilings ?? {};
@@ -106,13 +100,11 @@ function buildConstraintsFromBackend(rec: BackendLoanRec): Constraint[] {
     { key: 'DSCR',        label: 'DSCR',        sublabel: '≥ 1.25×', value: c.dscr_ceiling        ?? 0, binds: bindingKey === 'DSCR' },
     { key: 'Debt/EBITDA', label: 'Debt/EBITDA', sublabel: '≤ 3.5×',  value: c.debt_ebitda_ceiling ?? 0, binds: bindingKey === 'Debt/EBITDA' },
     { key: 'D/E',         label: 'D/E',          sublabel: '≤ 2.0×',  value: c.de_ceiling          ?? 0, binds: bindingKey === 'D/E' },
-    { key: 'ICR',         label: 'ICR',          sublabel: '≥ 2.0×',  value: c.icr_ceiling  ?? 0, binds: bindingKey === 'ICR' },
+    { key: 'ICR',         label: 'ICR',          sublabel: '≥ 2.0×',  value: c.icr_ceiling         ?? 0, binds: bindingKey === 'ICR' },
   ];
 }
 
-// ─── Local fallback constraint engine ────────────────────────────────────────
-// Used for immediate display before the backend responds and when the backend
-// does not return a loan_recommendation object.
+// ─── Local fallback constraint engine ─────────────────────────────────────────
 
 function pvAnnuity(annualCF: number, annualRatePct: number, tenorMonths: number, minDSCR: number): number {
   if (annualCF <= 0) return 0;
@@ -136,7 +128,6 @@ function buildConstraintsLocal(
   const minMonthlyCF = flows.length > 0 ? Math.min(...flows) : avgMonthly * 0.7;
 
   const pDSCR = pvAnnuity(annualCF, profitRate, tenor, 1.25);
-  // null balance-sheet fields treated as 0 by the local fallback engine only (never sent to ML)
   const totalDebt = fd.totalDebt ?? 0;
   const equity    = fd.equity    ?? 0;
   const pDebtEBITDA = Math.max(0, 3.5 * Math.max(0, ebit) - totalDebt);
@@ -160,37 +151,39 @@ function buildConstraintsLocal(
   return { constraints, maxLoan: Math.max(0, minVal), stressedCapacity, negativeEquity };
 }
 
-// ─── Constraint Bar Row ───────────────────────────────────────────────────────
+// ─── Constraint Bar ───────────────────────────────────────────────────────────
 
 function ConstraintBar({ c, chartMax, isUpdating }: { c: Constraint; chartMax: number; isUpdating: boolean }) {
   const pct = chartMax > 0 ? Math.min(100, (c.value / chartMax) * 100) : 0;
   return (
-    <div className="bg-slate-900 rounded-xl px-5 py-3 flex items-center gap-3">
-      <div className="w-28 flex-shrink-0">
-        <p className={`text-xs font-bold leading-tight ${c.binds ? 'text-rose-300' : 'text-slate-300'}`}>{c.label}</p>
-        <p className={`text-[10px] font-semibold ${c.binds ? 'text-rose-500' : 'text-slate-500'}`}>{c.sublabel}</p>
+    <div className="r-panel flex items-center gap-3 px-4 py-3" style={{ background: c.binds ? 'var(--danger-tint)' : 'var(--surface)' }}>
+      <div className="w-28 shrink-0">
+        <p className="text-xs font-bold leading-tight" style={{ color: c.binds ? 'var(--danger)' : 'var(--ink)' }}>{c.label}</p>
+        <p style={{ fontSize: '10px', fontWeight: 600, color: c.binds ? 'var(--danger)' : 'var(--ink-faint)' }}>{c.sublabel}</p>
       </div>
-      <div className="flex-1 h-8 bg-slate-700 rounded-md relative overflow-hidden">
+      <div className="flex-1 h-8 rounded relative overflow-hidden" style={{ background: 'var(--hairline)' }}>
         <div
-          className={`h-full rounded-md transition-all duration-500 ease-out ${isUpdating ? 'animate-pulse' : ''} ${
-            c.binds ? 'bg-rose-950 ring-2 ring-inset ring-rose-700' : 'bg-indigo-950 ring-1 ring-inset ring-indigo-800'
-          }`}
-          style={{ width: `${pct}%`, minWidth: c.value > 0 ? '4px' : '0' }}
+          className={`h-full rounded transition-all duration-500 ease-out ${isUpdating ? 'animate-pulse' : ''}`}
+          style={{
+            width: `${pct}%`,
+            minWidth: c.value > 0 ? '4px' : '0',
+            background: c.binds ? 'var(--danger)' : 'var(--navy-700)',
+            opacity: c.binds ? 1 : 0.7,
+          }}
         />
         {[33.3, 66.6].map(tick => (
-          <div key={tick} className="absolute top-0 h-full w-px bg-slate-600 opacity-50 pointer-events-none" style={{ left: `${tick}%` }} />
+          <div key={tick} className="absolute top-0 h-full w-px pointer-events-none" style={{ left: `${tick}%`, background: 'var(--panel)', opacity: 0.6 }} />
         ))}
       </div>
-      <div className="w-24 flex-shrink-0 text-right">
-        <span className={`text-xs font-bold tabular-nums ${isUpdating ? 'animate-pulse opacity-60' : ''} ${c.binds ? 'text-rose-300' : 'text-slate-300'}`}>
+      <div className="w-24 shrink-0 text-right">
+        <span className={`text-xs font-bold tabular ${isUpdating ? 'animate-pulse opacity-60' : ''}`}
+          style={{ color: c.binds ? 'var(--danger)' : 'var(--ink-muted)' }}>
           {formatSAR(c.value, true)}
         </span>
       </div>
-      <div className="w-16 flex-shrink-0">
+      <div className="w-16 shrink-0">
         {c.binds && (
-          <span className="inline-flex items-center px-2 py-0.5 bg-rose-900 border border-rose-700 text-rose-300 text-[10px] font-extrabold rounded-full whitespace-nowrap">
-            ← BINDS
-          </span>
+          <span className="r-badge-danger">BINDS</span>
         )}
       </div>
     </div>
@@ -203,14 +196,14 @@ function BarSkeleton() {
   return (
     <div className="space-y-2 animate-pulse">
       {[0, 1, 2, 3].map(i => (
-        <div key={i} className="bg-slate-900 rounded-xl px-5 py-3 flex items-center gap-3">
-          <div className="w-28 flex-shrink-0 space-y-1.5">
-            <div className="h-2.5 w-16 bg-slate-700 rounded" />
-            <div className="h-2 w-10 bg-slate-700 rounded" />
+        <div key={i} className="r-panel px-4 py-3 flex items-center gap-3" style={{ background: 'var(--surface)' }}>
+          <div className="w-28 shrink-0 space-y-1.5">
+            <div className="h-2.5 w-16 rounded" style={{ background: 'var(--hairline)' }} />
+            <div className="h-2 w-10 rounded" style={{ background: 'var(--hairline)' }} />
           </div>
-          <div className="h-8 bg-slate-700 rounded-md flex-1" />
-          <div className="w-24 h-3 bg-slate-700 rounded flex-shrink-0" />
-          <div className="w-16 flex-shrink-0" />
+          <div className="h-8 rounded flex-1" style={{ background: 'var(--hairline)' }} />
+          <div className="w-24 h-3 rounded shrink-0" style={{ background: 'var(--hairline)' }} />
+          <div className="w-16 shrink-0" />
         </div>
       ))}
     </div>
@@ -227,9 +220,8 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
   const [isInitialLoading, setIsInitialLoading] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // Authoritative loan recommendation from backend — null until first successful fetch
   const [backendLoanRec, setBackendLoanRec] = useState<BackendLoanRec | null>(null);
-  const [fetchError, setFetchError] = useState<boolean>(false); // F-15: true when last fetch failed
+  const [fetchError, setFetchError] = useState<boolean>(false); // F-15
   const hasFetchedOnce = useRef(false);
 
   const dTenor = useDebounce(tenor, 500);
@@ -237,17 +229,16 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
 
   useEffect(() => {
     if (!isRevealed) return;
-
     const controller = new AbortController();
     if (hasFetchedOnce.current) setIsUpdating(true);
 
     (async () => {
       try {
         const payload = {
-          // F-09: historicalMonths preserves null for unmapped cashFlow; monthlyRevenue carries chart estimates
+          // F-09
           historicalCashFlows: (financialData.historicalMonths ?? financialData.monthlyRevenue).map(m => m.cashFlow ?? null),
           confidenceTier: getHistoryConfidenceTier(financialData.historicalMonths),
-          // F-11: send null for unmapped balance-sheet fields — 0 and "not provided" must not be conflated
+          // F-11
           currentAssets:      financialData.currentAssets      ?? null,
           currentLiabilities: financialData.currentLiabilities ?? null,
           totalAssets:        financialData.totalAssets         ?? null,
@@ -261,11 +252,7 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
           revenue:            financialData.revenue             ?? 0,
           expenses:           financialData.expenses            ?? 0,
           retainedEarnings:   financialData.retainedEarnings    ?? null,
-          // Slider state sent as nested loan_params; profit_rate is a decimal fraction (0.08 = 8%)
-          loan_params: {
-            profit_rate:  dProfitRate / 100,
-            tenor_months: dTenor,
-          },
+          loan_params: { profit_rate: dProfitRate / 100, tenor_months: dTenor },
         };
 
         console.log('[LoanRecommendationCard] interest_expense →', payload.interest_expense);
@@ -276,21 +263,17 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
           signal: controller.signal,
         });
 
-        setFetchError(false); // reset before each attempt
+        setFetchError(false);
         if (res.ok) {
           const json = await res.json();
-          // Primary path: backend returns a loan_recommendation object
           const rec: BackendLoanRec | null = json.loan_recommendation ?? null;
           if (rec) {
             console.log('[LoanRec] raw loan_recommendation:', JSON.stringify(rec, null, 2));
             setBackendLoanRec(rec);
           }
-          // If backend does not return loan_recommendation yet, the local fallback
-          // continues to drive the display (no state update needed here).
         } else {
-          // F-15: HTTP error — local engine will drive display; disclose to user
           console.error('[LoanRecommendationCard] backend returned', res.status);
-          setFetchError(true);
+          setFetchError(true); // F-15
         }
       } catch (err: any) {
         if (err.name !== 'AbortError') {
@@ -305,65 +288,56 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
     })();
 
     return () => controller.abort();
-  // F-20: financialData added — effect re-fetches when a new company's data is loaded
+    // F-20
   }, [dTenor, dProfitRate, isRevealed, financialData]);
 
-  // ── Derive display values ─────────────────────────────────────────────────
-  // negativeEquity always comes from local data (structural fact, not API-dependent)
+  // ── Derive display values ──────────────────────────────────────────────────
   const { negativeEquity, stressedCapacity: localStressed, maxLoan: localMaxLoan, constraints: localConstraints } =
     buildConstraintsLocal(financialData, profitRate, tenor);
 
-  const displayConstraints = backendLoanRec
-    ? buildConstraintsFromBackend(backendLoanRec)
-    : localConstraints;
+  const displayConstraints = backendLoanRec ? buildConstraintsFromBackend(backendLoanRec) : localConstraints;
   const displayMaxLoan = backendLoanRec?.base_max_capacity ?? localMaxLoan;
-  // Backend stressed_max_capacity is clamped to ≤ base_max_capacity by the server;
-  // guard client-side as well in case of stale state mismatch.
   const displayStressed = backendLoanRec
     ? Math.min(backendLoanRec.stressed_max_capacity, backendLoanRec.base_max_capacity)
     : localStressed;
   const chartMax = getChartMax(displayConstraints);
 
-  // !(x > 0) catches 0, NaN, null, and undefined — all signal an unusable capacity figure
-  // stressed_max_capacity === 0 means forecast predicts cash flow burn even if base capacity is positive
+  // !(x > 0) catches 0, NaN, null, and undefined
   const isDeclined =
     !(displayMaxLoan > 0) ||
     (backendLoanRec != null && backendLoanRec.stressed_max_capacity === 0) ||
     (backendLoanRec?.status ?? '').includes('NOT_RECOMMENDED');
 
-  const handleReveal = () => {
-    setIsRevealed(true);
-    setIsInitialLoading(true);
-  };
+  const handleReveal = () => { setIsRevealed(true); setIsInitialLoading(true); };
 
-  // ── Inactive / Initial-loading ────────────────────────────────────────────
+  const sliderRowSt = { background: 'var(--surface)', border: '1px solid var(--hairline)', borderRadius: 'var(--radius)' };
+  const inputSt = { background: 'var(--surface)', border: '1px solid var(--hairline)', color: 'var(--ink)', fontFamily: 'var(--font-sans)' };
+
+  // ── Inactive / Initial-loading ─────────────────────────────────────────────
   if (!isRevealed || isInitialLoading) {
     return (
-      <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+      <div className="r-panel overflow-hidden">
         <div className="p-8">
           <div className="flex items-start gap-4 mb-6">
-            <div className="p-3 bg-indigo-600 rounded-xl flex-shrink-0">
-              <DollarSign className="h-6 w-6 text-white" />
+            <div className="p-3 rounded shrink-0" style={{ background: 'var(--navy-950)' }}>
+              <DollarSign className="h-6 w-6" style={{ color: 'var(--panel)' }} strokeWidth={1.5} />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-white mb-1">Credit Sizing & Loan Recommendation</h2>
-              <p className="text-sm text-slate-400">
-                Compute the maximum financeable amount across four SAMA-aligned structural constraints — DSCR, Debt/EBITDA, D/E, and ICR.
+              <h2 className="text-base font-bold mb-1">Credit Sizing &amp; Loan Recommendation</h2>
+              <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+                Compute the maximum financeable amount across four SAMA-aligned structural constraints: DSCR, Debt/EBITDA, D/E, and ICR.
               </p>
             </div>
           </div>
           {isInitialLoading ? (
-            <div className="flex items-center gap-3 text-slate-300 text-sm">
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-400" />
-              Running credit sizing model…
+            <div className="flex items-center gap-3 text-sm" style={{ color: 'var(--ink-muted)' }}>
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2" style={{ borderColor: 'var(--signal)' }} />
+              Running credit sizing model...
             </div>
           ) : (
-            <button
-              onClick={handleReveal}
-              className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-colors"
-            >
-              <DollarSign className="h-4 w-4" />
-              Run Credit Sizing & Loan Recommendation
+            <button onClick={handleReveal} className="r-btn-signal px-6 py-3 text-sm gap-2">
+              <DollarSign className="h-4 w-4" strokeWidth={1.5} />
+              Run Credit Sizing &amp; Loan Recommendation
             </button>
           )}
         </div>
@@ -373,53 +347,48 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
 
   // ── Revealed ──────────────────────────────────────────────────────────────
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+    <div className="r-panel overflow-hidden">
 
       {negativeEquity && (
-        <div className="bg-amber-900/40 border-b border-amber-700 px-5 py-3 flex items-center gap-2.5">
-          <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />
-          <p className="text-sm font-semibold text-amber-300">
-            ⚠️ Negative book equity detected. Routing to manual review.
+        <div className="px-5 py-3 flex items-center gap-2.5"
+          style={{ background: 'var(--caution-tint)', borderBottom: '1px solid color-mix(in oklch, var(--caution) 25%, transparent)' }}>
+          <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: 'var(--caution)' }} strokeWidth={1.5} />
+          <p className="text-sm font-semibold" style={{ color: 'var(--caution)' }}>
+            Negative book equity detected. Routing to manual review.
           </p>
         </div>
       )}
 
       {/* Header */}
-      <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between">
+      <div className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--hairline)' }}>
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-indigo-600 rounded-lg flex-shrink-0">
-            <DollarSign className="h-4 w-4 text-white" />
+          <div className="p-2 rounded shrink-0" style={{ background: 'var(--navy-950)' }}>
+            <DollarSign className="h-4 w-4" style={{ color: 'var(--panel)' }} strokeWidth={1.5} />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-white">Loan Recommendation Engine</h2>
-            <p className="text-xs text-slate-400">Automated capacity model — 4 binding constraint ceilings</p>
+            <p className="text-sm font-bold">Loan Recommendation Engine</p>
+            <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>Automated capacity model — 4 binding constraint ceilings</p>
           </div>
         </div>
         {isUpdating && (
-          <div className="flex items-center gap-1.5 text-xs text-indigo-400 font-medium">
-            <RefreshCw className="h-3 w-3 animate-spin" />
-            Updating…
+          <div className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--signal)' }}>
+            <RefreshCw className="h-3 w-3 animate-spin" />Updating...
           </div>
         )}
       </div>
 
-      {/* Verdict + Constraint Analysis — replaced entirely by the decline alert when capacity is zero */}
+      {/* Verdict or decline */}
       {isDeclined ? (
-        <div className="px-6 py-6 border-b border-slate-700">
-          <div className="flex items-start gap-4 bg-rose-950 border border-rose-700 rounded-xl p-5">
-            <AlertTriangle className="h-6 w-6 text-rose-400 flex-shrink-0 mt-0.5" />
+        <div className="px-6 py-6" style={{ borderBottom: '1px solid var(--hairline)' }}>
+          <div className="flex items-start gap-4 p-5 rounded" style={{ background: 'var(--danger-tint)', border: '1px solid color-mix(in oklch, var(--danger) 25%, transparent)' }}>
+            <AlertTriangle className="h-6 w-6 shrink-0 mt-0.5" style={{ color: 'var(--danger)' }} strokeWidth={1.5} />
             <div>
-              <p className="text-base font-bold text-rose-300 mb-1.5">
-                Credit Declined: Insufficient Capacity
-              </p>
-              <p className="text-sm text-rose-400 leading-relaxed">
-                The engine detected projected cash flow burn or negative earnings within the 6-month
-                forecast horizon. The business cannot safely service additional debt.
+              <p className="text-base font-bold mb-1.5" style={{ color: 'var(--danger)' }}>Credit Declined: Insufficient Capacity</p>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--ink-muted)' }}>
+                The engine detected projected cash flow burn or negative earnings within the 6-month forecast horizon. The business cannot safely service additional debt.
               </p>
               {backendLoanRec?.status && (
-                <p className="text-[10px] text-rose-600 mt-3 font-mono tracking-wide">
-                  {backendLoanRec.status}
-                </p>
+                <p className="text-[10px] mt-3 font-mono" style={{ color: 'var(--ink-faint)' }}>{backendLoanRec.status}</p>
               )}
             </div>
           </div>
@@ -427,40 +396,39 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
       ) : (
         <>
           {/* Verdict */}
-          <div className="px-6 py-5 border-b border-slate-700">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
-              Maximum Recommended Loan
-            </p>
+          <div className="px-6 py-5" style={{ borderBottom: '1px solid var(--hairline)' }}>
+            <p className="r-eyebrow mb-2">Maximum Recommended Loan</p>
             <div className="flex flex-wrap items-end gap-3">
-              <span className={`text-[2.5rem] leading-none font-extrabold text-white tracking-tight ${isUpdating ? 'animate-pulse opacity-60' : ''}`}>
+              <span className={`text-[2.5rem] leading-none font-extrabold tabular ${isUpdating ? 'animate-pulse opacity-60' : ''}`}>
                 {negativeEquity ? 'Manual Review Required' : formatSAR(displayMaxLoan)}
               </span>
               {!negativeEquity && (
-                <span className={`mb-0.5 flex items-center gap-1.5 px-2.5 py-1 bg-slate-700 border border-slate-600 rounded-full text-xs font-semibold text-slate-300 ${isUpdating ? 'animate-pulse opacity-60' : ''}`}>
-                  <TrendingDown className="h-3 w-3 text-slate-400" />
-                  Stressed Capacity (Worst Month): {formatSAR(displayStressed, true)}
+                <span className={`mb-0.5 flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold ${isUpdating ? 'animate-pulse opacity-60' : ''}`}
+                  style={{ background: 'var(--surface)', border: '1px solid var(--hairline)', color: 'var(--ink-muted)' }}>
+                  <TrendingDown className="h-3 w-3 shrink-0" strokeWidth={1.5} />
+                  Stressed (worst month): {formatSAR(displayStressed, true)}
                 </span>
               )}
             </div>
-            <p className="text-xs text-slate-500 mt-2">
+            <p className="text-xs mt-2" style={{ color: 'var(--ink-faint)' }}>
               At{' '}
-              <span className="font-semibold text-slate-300">{profitRate.toFixed(2)}% p.a.</span>
+              <span className="font-semibold" style={{ color: 'var(--ink)' }}>{profitRate.toFixed(2)}% p.a.</span>
               {' '}over{' '}
-              <span className="font-semibold text-slate-300">{tenor} months</span>
+              <span className="font-semibold" style={{ color: 'var(--ink)' }}>{tenor} months</span>
               {' '}— minimum across all four constraint ceilings.
-              {/* F-15: disclose local-engine fallback when backend was unreachable */}
+              {/* F-15 */}
               {hasFetchedOnce.current && fetchError && !backendLoanRec && (
-                <span className="ml-1 text-amber-500">· Local estimate (backend unavailable)</span>
+                <span className="ml-1" style={{ color: 'var(--caution)' }}>Local estimate (backend unavailable)</span>
               )}
-              {backendLoanRec && <span className="ml-1 text-indigo-500">· Backend-computed</span>}
+              {backendLoanRec && <span className="ml-1" style={{ color: 'var(--signal)' }}>Backend-computed</span>}
             </p>
           </div>
 
-          {/* Constraint Analysis */}
-          <div className="px-6 py-5 border-b border-slate-700">
+          {/* Constraint bars */}
+          <div className="px-6 py-5" style={{ borderBottom: '1px solid var(--hairline)' }}>
             <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Constraint Analysis</p>
-              <span className="text-[10px] text-slate-500 font-medium">Scale max: {formatSAR(chartMax, true)}</span>
+              <p className="r-eyebrow">Constraint Analysis</p>
+              <span className="text-[10px] font-medium" style={{ color: 'var(--ink-faint)' }}>Scale max: {formatSAR(chartMax, true)}</span>
             </div>
             <div className="space-y-2">
               {displayConstraints.map(c => (
@@ -473,72 +441,45 @@ export default function LoanRecommendationCard({ financialData, industry }: Loan
 
       {/* Loan Parameters */}
       <div className="p-6 space-y-4">
-        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Loan Parameters</p>
+        <p className="r-eyebrow">Loan Parameters</p>
 
         {/* Tenor */}
-        <div className="bg-slate-900 rounded-xl px-5 py-3">
-          <div className="flex items-center gap-4">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">
-              Tenor (Months)
-            </span>
-            <div className="flex-1 flex items-center gap-3">
-              <span className="text-xs text-slate-500">12</span>
-              <input
-                type="range" min={12} max={60} step={6} value={tenor}
-                onChange={e => setTenor(parseInt(e.target.value))}
-                className="flex-1 accent-indigo-500"
-              />
-              <span className="text-xs text-slate-500">60</span>
-            </div>
-            <span className="text-sm font-bold text-indigo-300 whitespace-nowrap bg-indigo-900 px-3 py-1 rounded-lg tabular-nums">
-              {tenor} months
-            </span>
+        <div className="px-5 py-3 flex items-center gap-4" style={sliderRowSt}>
+          <span className="r-eyebrow whitespace-nowrap">Tenor (Months)</span>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>12</span>
+            <input type="range" min={12} max={60} step={6} value={tenor}
+              onChange={e => setTenor(parseInt(e.target.value))}
+              className="w-48" style={{ accentColor: 'var(--signal)' }} />
+            <span className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>60</span>
           </div>
-          <div className="flex justify-between mt-2 px-8">
-            {[12, 18, 24, 30, 36, 42, 48, 54, 60].map(v => (
-              <span key={v} className={`text-[10px] tabular-nums ${tenor === v ? 'text-indigo-400 font-bold' : 'text-slate-600'}`}>
-                {v}
-              </span>
-            ))}
-          </div>
+          <span className="text-sm font-bold tabular px-3 py-1 rounded" style={{ background: 'var(--navy-950)', color: 'var(--panel)' }}>
+            {tenor} months
+          </span>
         </div>
 
         {/* Profit Rate */}
-        <div className="bg-slate-900 rounded-xl px-5 py-3">
-          <div className="flex items-center gap-4">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">
-              Profit Rate
-            </span>
-            <div className="flex-1 flex items-center gap-3">
-              <span className="text-xs text-slate-500">4%</span>
-              <input
-                type="range" min={4.0} max={15.0} step={0.25} value={profitRate}
-                onChange={e => setProfitRate(parseFloat(e.target.value))}
-                className="flex-1 accent-indigo-500"
-              />
-              <span className="text-xs text-slate-500">15%</span>
-            </div>
-            <span className="text-sm font-bold text-indigo-300 whitespace-nowrap bg-indigo-900 px-3 py-1 rounded-lg tabular-nums">
-              {profitRate.toFixed(2)}%
-            </span>
+        <div className="px-5 py-3 flex items-center gap-4" style={sliderRowSt}>
+          <span className="r-eyebrow whitespace-nowrap">Profit Rate</span>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>4%</span>
+            <input type="range" min={4.0} max={15.0} step={0.25} value={profitRate}
+              onChange={e => setProfitRate(parseFloat(e.target.value))}
+              className="w-48" style={{ accentColor: 'var(--signal)' }} />
+            <span className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>15%</span>
           </div>
-          <div className="flex justify-between mt-2 px-8">
-            {[4, 6, 8, 10, 12, 14].map(v => (
-              <span key={v} className={`text-[10px] tabular-nums ${Math.abs(profitRate - v) < 0.125 ? 'text-indigo-400 font-bold' : 'text-slate-600'}`}>
-                {v}%
-              </span>
-            ))}
-          </div>
+          <span className="text-sm font-bold tabular px-3 py-1 rounded" style={{ background: 'var(--navy-950)', color: 'var(--panel)' }}>
+            {profitRate.toFixed(2)}%
+          </span>
         </div>
 
-        {/* Disclaimer */}
-        <p className="text-[11px] text-slate-600 pt-2 leading-relaxed">
-          Capacity is the minimum of four SAMA-aligned constraint ceilings:{' '}
-          <span className="text-slate-500 font-semibold">DSCR ≥ 1.25×</span> (cash flow),{' '}
-          <span className="text-slate-500 font-semibold">Debt/EBITDA ≤ 3.5×</span> (earnings),{' '}
-          <span className="text-slate-500 font-semibold">D/E ≤ 2.0×</span> (equity), and{' '}
-          <span className="text-slate-500 font-semibold">ICR ≥ 2.0×</span> (interest cover).
-          {' '}EBIT, equity, and debt are sourced from uploaded financials and held static.
+        <p className="text-[11px] pt-2 leading-relaxed" style={{ color: 'var(--ink-faint)' }}>
+          Capacity is the minimum of four SAMA-aligned ceilings:{' '}
+          <span className="font-semibold" style={{ color: 'var(--ink-muted)' }}>DSCR ≥ 1.25×</span>,{' '}
+          <span className="font-semibold" style={{ color: 'var(--ink-muted)' }}>Debt/EBITDA ≤ 3.5×</span>,{' '}
+          <span className="font-semibold" style={{ color: 'var(--ink-muted)' }}>D/E ≤ 2.0×</span>, and{' '}
+          <span className="font-semibold" style={{ color: 'var(--ink-muted)' }}>ICR ≥ 2.0×</span>.
+          EBIT, equity, and debt are sourced from uploaded financials and held static.
         </p>
       </div>
     </div>

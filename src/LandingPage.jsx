@@ -1,14 +1,41 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, TrendingUp, Brain, Eye, EyeOff, ArrowRight, CheckCircle, Building2 } from 'lucide-react';
+import { TrendingUp, Brain, BarChart3, Building2, CheckCircle, Eye, EyeOff, ArrowRight, ShieldCheck } from 'lucide-react';
 
 const HARDCODED_USERNAME = 'lender';
 const HARDCODED_PASSWORD = 'finsight2025';
 
+const FEATURES = [
+  {
+    icon: BarChart3,
+    title: '7-Ratio Scoring Engine',
+    desc: 'Current Ratio, D/E, EBITDA Margin, ROA, DSCR, Quick Ratio, and ICR — configurable weights with SAMA-aligned benchmarks across 7 sectors.',
+  },
+  {
+    icon: Brain,
+    title: 'Altman Z′′-Score Classification',
+    desc: 'Private non-manufacturing variant. Classifies bankruptcy risk into Safe, Grey, and Distress zones from balance-sheet data.',
+  },
+  {
+    icon: TrendingUp,
+    title: '6-Month Cash Flow Forecast',
+    desc: 'Double Exponential Smoothing or ARIMA projection with adaptive confidence bands and LightGBM probability-of-default per month.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Knockout Disqualifiers',
+    desc: 'Hard rules: negative equity, critical liquidity failure (CR < 0.5), negative cash flow with debt, DSCR breach, and ICR below 1.0x.',
+  },
+  {
+    icon: Building2,
+    title: 'Industry Benchmarks',
+    desc: 'Thresholds calibrated to 7 Saudi sectors: SaaS, Retail, Construction, Logistics, Manufacturing, Tourism, and Healthcare.',
+  },
+];
+
 export default function LandingPage() {
   const navigate = useNavigate();
 
-  // Tab state: 'signin' or 'signup'
   const [activeTab, setActiveTab] = useState('signin');
 
   // Sign In state
@@ -34,22 +61,16 @@ export default function LandingPage() {
     e.preventDefault();
     setLoginLoading(true);
     setLoginError('');
-
     setTimeout(() => {
-      // Check hardcoded credentials first
       if (loginUsername === HARDCODED_USERNAME && loginPassword === HARDCODED_PASSWORD) {
         localStorage.setItem('finsight_auth', 'true');
         navigate('/dashboard');
         return;
       }
-
-      // Check user-created accounts in localStorage
       const stored = localStorage.getItem('finsight_users');
       if (stored) {
         const users = JSON.parse(stored);
-        const match = users.find(
-          u => u.username === loginUsername && u.password === loginPassword
-        );
+        const match = users.find(u => u.username === loginUsername && u.password === loginPassword);
         if (match) {
           localStorage.setItem('finsight_auth', 'true');
           localStorage.setItem('finsight_current_user', JSON.stringify(match));
@@ -57,8 +78,7 @@ export default function LandingPage() {
           return;
         }
       }
-
-      setLoginError('Invalid username or password. Please try again.');
+      setLoginError('Invalid username or password.');
       setLoginLoading(false);
     }, 800);
   };
@@ -69,9 +89,7 @@ export default function LandingPage() {
     setSignupLoading(true);
     setSignupError('');
     setSignupSuccess('');
-
     setTimeout(() => {
-      // Validation
       if (signupPassword !== signupConfirm) {
         setSignupError('Passwords do not match.');
         setSignupLoading(false);
@@ -87,308 +105,278 @@ export default function LandingPage() {
         setSignupLoading(false);
         return;
       }
-
-      // Check for duplicate username in existing accounts
       const stored = localStorage.getItem('finsight_users');
-      const users  = stored ? JSON.parse(stored) : [];
+      const users = stored ? JSON.parse(stored) : [];
       if (users.find(u => u.username === signupUsername)) {
         setSignupError('That username is already taken.');
         setSignupLoading(false);
         return;
       }
-
-      // Save new user
       const newUser = {
-        name:        signupName,
+        name: signupName,
         institution: signupInstitution,
-        username:    signupUsername,
-        password:    signupPassword,
-        createdAt:   new Date().toISOString()
+        username: signupUsername,
+        password: signupPassword,
+        createdAt: new Date().toISOString(),
       };
       users.push(newUser);
       localStorage.setItem('finsight_users', JSON.stringify(users));
-
-      setSignupSuccess('Account created successfully. You can now sign in.');
+      setSignupSuccess('Account created. You can now sign in.');
       setSignupLoading(false);
-
-      // Clear form and switch to sign in after short delay
       setTimeout(() => {
         setActiveTab('signin');
         setLoginUsername(signupUsername);
-        setSignupName('');
-        setSignupInstitution('');
-        setSignupUsername('');
-        setSignupPassword('');
-        setSignupConfirm('');
-        setSignupSuccess('');
+        setSignupName(''); setSignupInstitution(''); setSignupUsername('');
+        setSignupPassword(''); setSignupConfirm(''); setSignupSuccess('');
       }, 1500);
     }, 800);
   };
 
+  // ── Continue as Demo ──
+  const handleDemo = () => {
+    localStorage.setItem('finsight_auth', 'true');
+    navigate('/dashboard');
+  };
+
+  // ── Shared input style ──
+  const inputCls = 'w-full px-3 py-2.5 text-sm rounded outline-none transition-colors';
+  const inputStyle = {
+    background: 'var(--surface)',
+    border: '1px solid var(--hairline)',
+    color: 'var(--ink)',
+    fontFamily: 'var(--font-sans)',
+  };
+
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--surface)', color: 'var(--ink)' }}>
 
-      {/* ── Dark Top Section ── */}
-      <div className="bg-slate-900">
-        <nav className="px-10 py-5 border-b border-slate-800 flex items-center justify-between">
-          <img src="/logo.png" alt="FinSight" className="h-20 w-auto" />
-          <span className="text-xs text-slate-500 font-medium">
-            IMSIU — Information Systems Department
-          </span>
-        </nav>
+      {/* Chrome nav bar */}
+      <nav className="h-12 flex items-center justify-between px-8 shrink-0"
+        style={{ background: 'var(--navy-950)', borderBottom: '1px solid var(--navy-800)' }}>
+        <img src="/logo.png" alt="FinSight" className="h-8 w-auto" />
+        <span className="r-eyebrow" style={{ color: 'oklch(0.48 0.035 200)' }}>
+          IMSIU — Information Systems Department
+        </span>
+      </nav>
 
-        <div className="px-10 pt-16 pb-20 max-w-3xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 bg-indigo-900/40 border border-indigo-800 text-indigo-300 px-3 py-1.5 rounded-full text-xs font-semibold mb-6 tracking-wide uppercase">
-            <Brain className="h-3.5 w-3.5" />
-            AI-Powered Credit Assessment
-          </div>
-          <h1 className="text-5xl font-bold text-white leading-tight mb-4">
-            SME Funding Decisions,{' '}
-            <span className="text-indigo-400">Automated.</span>
+      {/* Main content */}
+      <div className="flex-1 max-w-[1320px] mx-auto w-full px-8 py-16
+                      grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-16 items-start">
+
+        {/* ── Hero ── */}
+        <div>
+          <p className="r-eyebrow mb-5">Credit Assessment Platform</p>
+          <h1 className="text-4xl font-bold leading-tight mb-5">
+            SME Credit Decisions for Saudi Financial Institutions
           </h1>
-          <p className="text-slate-400 text-base leading-relaxed max-w-xl mx-auto">
-            FinSight is a Decision Support System for Saudi financial institutions —
-            upload SME financial data and get a data-driven lending decision in seconds.
+          <p className="text-base leading-relaxed mb-12"
+            style={{ color: 'var(--ink-muted)', maxWidth: '520px' }}>
+            FinSight scores loan applications using ratio analysis, Altman
+            Z''-Score bankruptcy modeling, 6-month cash flow forecasting, and
+            probability-of-default classification. Designed for SAMA-aligned
+            credit analysis.
           </p>
+
+          <div className="space-y-3">
+            {FEATURES.map(({ icon: Icon, title, desc }) => (
+              <div key={title} className="flex items-start gap-4 p-4 r-panel">
+                <div className="p-2 rounded shrink-0 mt-0.5"
+                  style={{ background: 'var(--surface)', border: '1px solid var(--hairline)' }}>
+                  <Icon className="h-4 w-4" style={{ color: 'var(--signal)' }} strokeWidth={1.5} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold mb-0.5" style={{ color: 'var(--ink)' }}>{title}</p>
+                  <p className="text-xs leading-relaxed" style={{ color: 'var(--ink-muted)' }}>{desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* ── White Bottom Section ── */}
-      <div className="flex-1 bg-white px-10 py-16">
-        <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-16 items-start">
+        {/* ── Auth Card ── */}
+        <div className="r-panel overflow-hidden">
 
-          {/* ── Features ── */}
-          <div>
-            <h2 className="text-xl font-bold text-slate-900 mb-6">What FinSight does</h2>
-            <div className="space-y-4">
-              {[
-                { icon: TrendingUp,  title: '7-Ratio Scoring Engine',    desc: 'Current Ratio, D/E, EBITDA Margin, ROA, DSCR, Quick Ratio, and ICR — configurable weights with SAMA-aligned benchmarks across 7 sectors.' },
-                { icon: Brain,       title: 'DES Cash Flow Forecast',    desc: 'Double Exponential Smoothing projects a 6-month cash flow horizon with adaptive confidence bands. LightGBM classifies probability of default for each forecast month.' },
-                { icon: BarChart3,   title: 'Portfolio History',         desc: 'Every assessed SME is saved with full ratio breakdowns, Altman Z″-Score, and ML-computed probability of default.' },
-                { icon: Building2,   title: 'Industry Benchmarks',       desc: 'Benchmark thresholds calibrated to 7 Saudi sectors: SaaS, Retail, Construction, Logistics, Manufacturing, Tourism, and Healthcare.' },
-                { icon: CheckCircle, title: 'Knockout Disqualifiers',    desc: 'Hard rules flag negative equity, critical liquidity failure, negative cash flow with outstanding debt, and earnings that cannot cover interest payments.' },
-              ].map(({ icon: Icon, title, desc }, idx) => (
-                <div key={idx} className="flex items-start gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl">
-                  <div className="p-2 bg-indigo-50 border border-indigo-100 rounded-lg mt-0.5">
-                    <Icon className="h-4 w-4 text-indigo-600" />
+          {/* Tab switcher */}
+          <div className="grid grid-cols-2" style={{ borderBottom: '1px solid var(--hairline)' }}>
+            {[
+              { key: 'signin', label: 'Sign In' },
+              { key: 'signup', label: 'Create Account' },
+            ].map(({ key, label }) => (
+              <button key={key}
+                onClick={() => { setActiveTab(key); setLoginError(''); setSignupError(''); setSignupSuccess(''); }}
+                className="py-3.5 text-sm font-semibold transition-colors"
+                style={{
+                  background: activeTab === key ? 'var(--panel)' : 'var(--surface)',
+                  color: activeTab === key ? 'var(--ink)' : 'var(--ink-faint)',
+                  borderBottom: activeTab === key ? '2px solid var(--signal)' : '2px solid transparent',
+                }}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="p-7">
+
+            {/* ── Sign In ── */}
+            {activeTab === 'signin' && (
+              <>
+                <div className="mb-6">
+                  <h2 className="text-base font-bold mb-1">Welcome back</h2>
+                  <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>Sign in to FinSight</p>
+                </div>
+
+                <form onSubmit={handleLogin} className="space-y-4">
+                  <div>
+                    <label className="r-eyebrow block mb-2">Username</label>
+                    <input type="text" value={loginUsername}
+                      onChange={(e) => setLoginUsername(e.target.value)}
+                      className={inputCls} style={inputStyle}
+                      placeholder="Enter username" required />
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-slate-800 mb-0.5">{title}</p>
-                    <p className="text-xs text-slate-500 leading-relaxed">{desc}</p>
+                    <label className="r-eyebrow block mb-2">Password</label>
+                    <div className="relative">
+                      <input type={showLoginPassword ? 'text' : 'password'}
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
+                        className={inputCls} style={{ ...inputStyle, paddingRight: '2.5rem' }}
+                        placeholder="Enter password" required />
+                      <button type="button"
+                        onClick={() => setShowLoginPassword(!showLoginPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2"
+                        style={{ color: 'var(--ink-faint)' }}>
+                        {showLoginPassword
+                          ? <EyeOff className="h-4 w-4" strokeWidth={1.5} />
+                          : <Eye className="h-4 w-4" strokeWidth={1.5} />}
+                      </button>
+                    </div>
                   </div>
+
+                  {loginError && (
+                    <p className="text-xs px-3 py-2 rounded"
+                      style={{ background: 'var(--danger-tint)', color: 'var(--danger)', border: '1px solid color-mix(in oklch, var(--danger) 20%, transparent)' }}>
+                      {loginError}
+                    </p>
+                  )}
+
+                  <button type="submit" disabled={loginLoading}
+                    className="r-btn-primary w-full py-2.5 text-sm">
+                    {loginLoading
+                      ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />Signing in...</>
+                      : <>Sign in <ArrowRight className="h-4 w-4" strokeWidth={1.5} /></>}
+                  </button>
+                </form>
+
+                {/* Divider */}
+                <div className="flex items-center gap-3 my-5">
+                  <div className="flex-1 h-px" style={{ background: 'var(--hairline)' }} />
+                  <span className="text-[11px] font-medium" style={{ color: 'var(--ink-faint)' }}>or</span>
+                  <div className="flex-1 h-px" style={{ background: 'var(--hairline)' }} />
                 </div>
-              ))}
-            </div>
-          </div>
 
-          {/* ── Auth Card ── */}
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-md overflow-hidden">
+                {/* Continue as Demo */}
+                <button onClick={handleDemo}
+                  className="r-btn-ghost w-full py-2.5 text-sm">
+                  Continue as Demo
+                </button>
 
-            {/* Tab Switcher */}
-            <div className="grid grid-cols-2 border-b border-slate-200">
-              <button
-                onClick={() => { setActiveTab('signin'); setLoginError(''); }}
-                className={`py-4 text-sm font-bold transition-colors ${
-                  activeTab === 'signin'
-                    ? 'bg-white text-slate-900 border-b-2 border-indigo-600'
-                    : 'bg-slate-50 text-slate-400 hover:text-slate-600'
-                }`}
-              >
-                Sign In
-              </button>
-              <button
-                onClick={() => { setActiveTab('signup'); setSignupError(''); setSignupSuccess(''); }}
-                className={`py-4 text-sm font-bold transition-colors ${
-                  activeTab === 'signup'
-                    ? 'bg-white text-slate-900 border-b-2 border-indigo-600'
-                    : 'bg-slate-50 text-slate-400 hover:text-slate-600'
-                }`}
-              >
-                Create Account
-              </button>
-            </div>
+                <p className="text-center text-xs mt-5" style={{ color: 'var(--ink-faint)' }}>
+                  No account?{' '}
+                  <button onClick={() => setActiveTab('signup')}
+                    className="font-semibold" style={{ color: 'var(--signal)' }}>
+                    Create one
+                  </button>
+                </p>
+              </>
+            )}
 
-            <div className="p-8">
+            {/* ── Sign Up ── */}
+            {activeTab === 'signup' && (
+              <>
+                <div className="mb-6">
+                  <h2 className="text-base font-bold mb-1">Create an account</h2>
+                  <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>Register your institution's access</p>
+                </div>
 
-              {/* ── Sign In Form ── */}
-              {activeTab === 'signin' && (
-                <>
-                  <div className="mb-6">
-                    <h2 className="text-lg font-bold text-slate-900 mb-1">Welcome back</h2>
-                    <p className="text-slate-500 text-xs">Sign in to FinSight</p>
+                <form onSubmit={handleSignup} className="space-y-4">
+                  {[
+                    { label: 'Full Name',    field: 'name',        value: signupName,        onChange: setSignupName,        placeholder: 'Ahmed Al-Rashidi', type: 'text' },
+                    { label: 'Institution',  field: 'institution', value: signupInstitution, onChange: setSignupInstitution, placeholder: 'Al Rajhi Bank',    type: 'text' },
+                    { label: 'Username',     field: 'username',    value: signupUsername,    onChange: setSignupUsername,    placeholder: 'Choose a username', type: 'text' },
+                  ].map(({ label, value, onChange, placeholder, type }) => (
+                    <div key={label}>
+                      <label className="r-eyebrow block mb-2">{label}</label>
+                      <input type={type} value={value} onChange={(e) => onChange(e.target.value)}
+                        className={inputCls} style={inputStyle} placeholder={placeholder} required />
+                    </div>
+                  ))}
+
+                  <div>
+                    <label className="r-eyebrow block mb-2">Password</label>
+                    <div className="relative">
+                      <input type={showSignupPassword ? 'text' : 'password'}
+                        value={signupPassword} onChange={(e) => setSignupPassword(e.target.value)}
+                        className={inputCls} style={{ ...inputStyle, paddingRight: '2.5rem' }}
+                        placeholder="Min. 6 characters" required />
+                      <button type="button"
+                        onClick={() => setShowSignupPassword(!showSignupPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2"
+                        style={{ color: 'var(--ink-faint)' }}>
+                        {showSignupPassword
+                          ? <EyeOff className="h-4 w-4" strokeWidth={1.5} />
+                          : <Eye className="h-4 w-4" strokeWidth={1.5} />}
+                      </button>
+                    </div>
                   </div>
 
-                  <form onSubmit={handleLogin} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Username</label>
-                      <input
-                        type="text"
-                        value={loginUsername}
-                        onChange={(e) => setLoginUsername(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-300 text-slate-900 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-slate-400 outline-none"
-                        placeholder="Enter username"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Password</label>
-                      <div className="relative">
-                        <input
-                          type={showLoginPassword ? 'text' : 'password'}
-                          value={loginPassword}
-                          onChange={(e) => setLoginPassword(e.target.value)}
-                          className="w-full px-4 py-3 bg-slate-50 border border-slate-300 text-slate-900 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-slate-400 outline-none pr-11"
-                          placeholder="Enter password"
-                          required
-                        />
-                        <button type="button" onClick={() => setShowLoginPassword(!showLoginPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                          {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    {loginError && (
-                      <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg">{loginError}</p>
-                    )}
-
-                    <button
-                      type="submit"
-                      disabled={loginLoading}
-                      className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white py-3 rounded-lg text-sm font-semibold transition-colors"
-                    >
-                      {loginLoading ? (
-                        <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />Signing in...</>
-                      ) : (
-                        <>Sign in <ArrowRight className="h-4 w-4" /></>
-                      )}
-                    </button>
-                  </form>
-
-                  <p className="text-center text-xs text-slate-400 mt-4">
-                    Don't have an account?{' '}
-                    <button onClick={() => setActiveTab('signup')} className="text-indigo-600 font-semibold hover:underline">
-                      Create one
-                    </button>
-                  </p>
-                </>
-              )}
-
-              {/* ── Sign Up Form ── */}
-              {activeTab === 'signup' && (
-                <>
-                  <div className="mb-6">
-                    <h2 className="text-lg font-bold text-slate-900 mb-1">Create an account</h2>
-                    <p className="text-slate-500 text-xs">Register your institution's access to FinSight</p>
+                  <div>
+                    <label className="r-eyebrow block mb-2">Confirm Password</label>
+                    <input type="password" value={signupConfirm}
+                      onChange={(e) => setSignupConfirm(e.target.value)}
+                      className={inputCls} style={inputStyle}
+                      placeholder="Repeat your password" required />
                   </div>
 
-                  <form onSubmit={handleSignup} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Full Name</label>
-                      <input
-                        type="text"
-                        value={signupName}
-                        onChange={(e) => setSignupName(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-300 text-slate-900 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none placeholder-slate-400"
-                        placeholder="e.g. Ahmed Al-Rashidi"
-                        required
-                      />
-                    </div>
+                  {signupError && (
+                    <p className="text-xs px-3 py-2 rounded"
+                      style={{ background: 'var(--danger-tint)', color: 'var(--danger)', border: '1px solid color-mix(in oklch, var(--danger) 20%, transparent)' }}>
+                      {signupError}
+                    </p>
+                  )}
+                  {signupSuccess && (
+                    <p className="text-xs px-3 py-2 rounded flex items-center gap-2"
+                      style={{ background: 'var(--safe-tint)', color: 'var(--safe)', border: '1px solid color-mix(in oklch, var(--safe) 20%, transparent)' }}>
+                      <CheckCircle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />{signupSuccess}
+                    </p>
+                  )}
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Institution</label>
-                      <input
-                        type="text"
-                        value={signupInstitution}
-                        onChange={(e) => setSignupInstitution(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-300 text-slate-900 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none placeholder-slate-400"
-                        placeholder="e.g. Al Rajhi Bank"
-                        required
-                      />
-                    </div>
+                  <button type="submit" disabled={signupLoading}
+                    className="r-btn-primary w-full py-2.5 text-sm">
+                    {signupLoading
+                      ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />Creating account...</>
+                      : <>Create Account <ArrowRight className="h-4 w-4" strokeWidth={1.5} /></>}
+                  </button>
+                </form>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Username</label>
-                      <input
-                        type="text"
-                        value={signupUsername}
-                        onChange={(e) => setSignupUsername(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-300 text-slate-900 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none placeholder-slate-400"
-                        placeholder="Choose a username"
-                        required
-                      />
-                    </div>
+                <p className="text-center text-xs mt-5" style={{ color: 'var(--ink-faint)' }}>
+                  Already have an account?{' '}
+                  <button onClick={() => setActiveTab('signin')}
+                    className="font-semibold" style={{ color: 'var(--signal)' }}>
+                    Sign in
+                  </button>
+                </p>
+              </>
+            )}
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Password</label>
-                      <div className="relative">
-                        <input
-                          type={showSignupPassword ? 'text' : 'password'}
-                          value={signupPassword}
-                          onChange={(e) => setSignupPassword(e.target.value)}
-                          className="w-full px-4 py-3 bg-slate-50 border border-slate-300 text-slate-900 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none placeholder-slate-400 pr-11"
-                          placeholder="Min. 6 characters"
-                          required
-                        />
-                        <button type="button" onClick={() => setShowSignupPassword(!showSignupPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                          {showSignupPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Confirm Password</label>
-                      <input
-                        type="password"
-                        value={signupConfirm}
-                        onChange={(e) => setSignupConfirm(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-300 text-slate-900 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none placeholder-slate-400"
-                        placeholder="Repeat your password"
-                        required
-                      />
-                    </div>
-
-                    {signupError && (
-                      <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg">{signupError}</p>
-                    )}
-                    {signupSuccess && (
-                      <p className="text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-lg flex items-center gap-2">
-                        <CheckCircle className="h-3.5 w-3.5" />{signupSuccess}
-                      </p>
-                    )}
-
-                    <button
-                      type="submit"
-                      disabled={signupLoading}
-                      className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white py-3 rounded-lg text-sm font-semibold transition-colors"
-                    >
-                      {signupLoading ? (
-                        <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />Creating account...</>
-                      ) : (
-                        <>Create Account <ArrowRight className="h-4 w-4" /></>
-                      )}
-                    </button>
-                  </form>
-
-                  <p className="text-center text-xs text-slate-400 mt-4">
-                    Already have an account?{' '}
-                    <button onClick={() => setActiveTab('signin')} className="text-indigo-600 font-semibold hover:underline">
-                      Sign in
-                    </button>
-                  </p>
-                </>
-              )}
-
-            </div>
           </div>
-
         </div>
+
       </div>
 
-      {/* ── Footer ── */}
-      <footer className="bg-white border-t border-slate-200 px-10 py-4 text-center">
-        <p className="text-xs text-slate-400">
-          FinSight © 2026 — Graduation Project, Information Systems Department, IMSIU
+      {/* Footer */}
+      <footer className="px-8 py-4 text-center" style={{ borderTop: '1px solid var(--hairline)' }}>
+        <p className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>
+          FinSight &copy; 2026 &mdash; Graduation Project, Information Systems Department, IMSIU
         </p>
       </footer>
 
