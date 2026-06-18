@@ -1,10 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <!-- Navy-950 background (hex approximation of oklch(0.24 0.045 200)) -->
+  <!-- Navy background (#0e2b3e ≈ oklch(0.24 0.045 200)) -->
   <rect width="32" height="32" rx="3" fill="#0e2b3e"/>
-  <!-- Geometric F — cream/white (approximation of --panel) -->
-  <rect x="6"  y="5"  width="6"  height="22" fill="#faf6f0"/>
-  <rect x="6"  y="5"  width="16" height="6"  fill="#faf6f0"/>
-  <rect x="6"  y="17" width="13" height="5"  fill="#faf6f0"/>
-  <!-- Signal-gold accent dot (hex approximation of oklch(0.66 0.14 65)) -->
-  <circle cx="24" cy="8" r="4.5" fill="#c89830"/>
+  <!-- Trend line — cream/white on dark, ascending with one realistic dip -->
+  <polyline
+    points="4,25 9,20 13,22 19,14 25,9"
+    stroke="#faf6f0"
+    stroke-width="3"
+    fill="none"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <!-- Signal-gold peak dot (#c89830 ≈ oklch(0.66 0.14 65)) -->
+  <circle cx="25" cy="9" r="4" fill="#c89830"/>
 </svg>

@@ -1,13 +1,15 @@
-export default function FinSightLogo({ height = 32 }) {
-  const iconPx = Math.round(height * 0.875); // ~28px at h=32
-  const fontSize = Math.round(height * 0.5625); // ~18px at h=32
+// onDark=true  → white wordmark (for navy chrome nav)
+// onDark=false → ink wordmark (for cream/surface backgrounds)
+export default function FinSightLogo({ height = 32, onDark = true }) {
+  const iconPx = Math.round(height * 0.875); // 28px at h=32
+  const fontSize = Math.round(height * 0.5625); // 18px at h=32
 
   return (
     <div
       style={{ display: 'flex', alignItems: 'center', gap: 8, height, userSelect: 'none' }}
       aria-label="FinSight"
     >
-      {/* Icon mark — cream box with geometric F + signal-gold dot */}
+      {/* Icon mark — cream box, navy trend line, single gold peak dot */}
       <svg
         width={iconPx}
         height={iconPx}
@@ -15,19 +17,26 @@ export default function FinSightLogo({ height = 32 }) {
         fill="none"
         aria-hidden="true"
       >
-        {/* Cream backing — reads on dark chrome */}
-        <rect width="28" height="28" rx="3" fill="var(--panel)" />
-        {/* Geometric F — vertical stem */}
-        <rect x="6" y="5" width="5" height="18" fill="var(--navy-950)" />
-        {/* Top arm */}
-        <rect x="6" y="5" width="14" height="5" fill="var(--navy-950)" />
-        {/* Middle arm */}
-        <rect x="6" y="16" width="11" height="4" fill="var(--navy-950)" />
-        {/* Signal-gold accent dot — one element, at the cap of the top arm */}
-        <circle cx="22" cy="7" r="3.5" fill="var(--signal)" />
+        {/* Cream backing */}
+        <rect
+          width="28" height="28" rx="3"
+          fill="var(--panel)"
+          stroke={onDark ? 'none' : 'var(--hairline)'}
+          strokeWidth={onDark ? 0 : 1}
+        />
+        {/* Trend line — ascending with one realistic dip, navy on cream */}
+        <polyline
+          points="4,22 9,17 13,19 18,12 23,8"
+          stroke="var(--navy-950)"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {/* Signal-gold peak dot — one accent element only */}
+        <circle cx="23" cy="8" r="3.5" fill="var(--signal)" />
       </svg>
 
-      {/* Wordmark — Manrope 700, white on dark chrome */}
+      {/* Wordmark */}
       <span
         style={{
           fontFamily: 'Manrope, ui-sans-serif, system-ui, sans-serif',
@@ -35,11 +44,16 @@ export default function FinSightLogo({ height = 32 }) {
           fontWeight: 700,
           letterSpacing: '-0.02em',
           lineHeight: 1,
-          color: '#ffffff',
+          color: onDark ? '#ffffff' : 'var(--ink)',
         }}
       >
         Fin
-        <span style={{ fontWeight: 600, color: 'rgba(255,255,255,0.72)' }}>Sight</span>
+        <span style={{
+          fontWeight: 600,
+          color: onDark ? 'rgba(255,255,255,0.72)' : 'var(--ink-muted)',
+        }}>
+          Sight
+        </span>
       </span>
     </div>
   );

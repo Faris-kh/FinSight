@@ -36,7 +36,6 @@ const FEATURES = [
 
 export default function LandingPage() {
   const navigate = useNavigate();
-
   const [activeTab, setActiveTab] = useState('signin');
 
   // Sign In state
@@ -139,247 +138,331 @@ export default function LandingPage() {
     navigate('/dashboard');
   };
 
-  // ── Shared input style ──
+  const switchTab = (key) => {
+    setActiveTab(key);
+    setLoginError('');
+    setSignupError('');
+    setSignupSuccess('');
+  };
+
   const inputCls = 'w-full px-3 py-2.5 text-sm rounded outline-none transition-colors';
-  const inputStyle = {
-    background: 'var(--surface)',
+  const inputSt = {
+    background: 'var(--panel)',
     border: '1px solid var(--hairline)',
     color: 'var(--ink)',
     fontFamily: 'var(--font-sans)',
   };
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--surface)', color: 'var(--ink)' }}>
+    <div className="min-h-screen flex" style={{ fontFamily: 'var(--font-sans)', color: 'var(--ink)' }}>
 
-      {/* Chrome nav bar */}
-      <nav className="h-14 flex items-center justify-between px-8 shrink-0"
-        style={{ background: 'var(--navy-950)', borderBottom: '1px solid var(--navy-800)' }}>
-        <FinSightLogo height={32} />
-        <span className="r-eyebrow" style={{ color: 'oklch(0.48 0.035 200)' }}>
-          IMSIU — Information Systems Department
-        </span>
-      </nav>
+      {/* ── LEFT: Navy brand panel ── */}
+      <div
+        className="hidden lg:flex lg:w-[58%] flex-col px-14 py-12"
+        style={{ background: 'var(--navy-950)' }}
+      >
+        {/* Logo — top-left */}
+        <div className="shrink-0">
+          <FinSightLogo height={32} onDark={true} />
+        </div>
 
-      {/* Main content */}
-      <div className="flex-1 max-w-[1320px] mx-auto w-full px-8 py-16
-                      grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-16 items-start">
-
-        {/* ── Hero ── */}
-        <div>
-          <p className="r-eyebrow mb-5">Credit Assessment Platform</p>
-          <h1 className="text-4xl font-bold leading-tight mb-5">
+        {/* Hero — vertically centered in remaining space */}
+        <div className="flex-1 flex flex-col justify-center py-12">
+          <p className="r-eyebrow mb-5" style={{ color: 'oklch(0.48 0.035 200)' }}>
+            Credit Assessment Platform
+          </p>
+          <h1
+            className="font-bold leading-[1.15] mb-6"
+            style={{
+              fontSize: '2.5rem',
+              letterSpacing: '-0.03em',
+              color: '#ffffff',
+              maxWidth: '520px',
+            }}
+          >
             SME Credit Decisions for Saudi Financial Institutions
           </h1>
-          <p className="text-base leading-relaxed mb-12"
-            style={{ color: 'var(--ink-muted)', maxWidth: '520px' }}>
-            FinSight scores loan applications using ratio analysis, Altman
-            Z''-Score bankruptcy modeling, 6-month cash flow forecasting, and
-            probability-of-default classification. Designed for SAMA-aligned
+          <p
+            className="text-sm leading-relaxed mb-12"
+            style={{ color: 'oklch(0.60 0.022 205)', maxWidth: '460px' }}
+          >
+            FinSight scores loan applications using ratio analysis, Altman Z&prime;&prime;-Score
+            bankruptcy modeling, 6-month cash flow forecasting, and
+            probability-of-default classification — designed for SAMA-aligned
             credit analysis.
           </p>
 
-          <div className="space-y-3">
+          {/* Feature list */}
+          <div className="space-y-5">
             {FEATURES.map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="flex items-start gap-4 p-4 r-panel">
-                <div className="p-2 rounded shrink-0 mt-0.5"
-                  style={{ background: 'var(--surface)', border: '1px solid var(--hairline)' }}>
-                  <Icon className="h-4 w-4" style={{ color: 'var(--signal)' }} strokeWidth={1.5} />
+              <div key={title} className="flex items-start gap-3">
+                <div
+                  className="shrink-0 mt-0.5 w-6 h-6 flex items-center justify-center rounded"
+                  style={{ background: 'oklch(0.30 0.045 200)' }}
+                >
+                  <Icon className="h-3.5 w-3.5" style={{ color: 'var(--signal)' }} strokeWidth={1.5} />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold mb-0.5" style={{ color: 'var(--ink)' }}>{title}</p>
-                  <p className="text-xs leading-relaxed" style={{ color: 'var(--ink-muted)' }}>{desc}</p>
+                  <p className="text-xs font-semibold mb-0.5" style={{ color: '#ffffff' }}>{title}</p>
+                  <p className="text-[11px] leading-relaxed" style={{ color: 'oklch(0.52 0.022 205)' }}>{desc}</p>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* ── Auth Card ── */}
-        <div className="r-panel overflow-hidden">
-
-          {/* Tab switcher */}
-          <div className="grid grid-cols-2" style={{ borderBottom: '1px solid var(--hairline)' }}>
-            {[
-              { key: 'signin', label: 'Sign In' },
-              { key: 'signup', label: 'Create Account' },
-            ].map(({ key, label }) => (
-              <button key={key}
-                onClick={() => { setActiveTab(key); setLoginError(''); setSignupError(''); setSignupSuccess(''); }}
-                className="py-3.5 text-sm font-semibold transition-colors"
-                style={{
-                  background: activeTab === key ? 'var(--panel)' : 'var(--surface)',
-                  color: activeTab === key ? 'var(--ink)' : 'var(--ink-faint)',
-                  borderBottom: activeTab === key ? '2px solid var(--signal)' : '2px solid transparent',
-                }}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div className="p-7">
-
-            {/* ── Sign In ── */}
-            {activeTab === 'signin' && (
-              <>
-                <div className="mb-6">
-                  <h2 className="text-base font-bold mb-1">Welcome back</h2>
-                  <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>Sign in to FinSight</p>
-                </div>
-
-                <form onSubmit={handleLogin} className="space-y-4">
-                  <div>
-                    <label className="r-eyebrow block mb-2">Username</label>
-                    <input type="text" value={loginUsername}
-                      onChange={(e) => setLoginUsername(e.target.value)}
-                      className={inputCls} style={inputStyle}
-                      placeholder="Enter username" required />
-                  </div>
-                  <div>
-                    <label className="r-eyebrow block mb-2">Password</label>
-                    <div className="relative">
-                      <input type={showLoginPassword ? 'text' : 'password'}
-                        value={loginPassword}
-                        onChange={(e) => setLoginPassword(e.target.value)}
-                        className={inputCls} style={{ ...inputStyle, paddingRight: '2.5rem' }}
-                        placeholder="Enter password" required />
-                      <button type="button"
-                        onClick={() => setShowLoginPassword(!showLoginPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2"
-                        style={{ color: 'var(--ink-faint)' }}>
-                        {showLoginPassword
-                          ? <EyeOff className="h-4 w-4" strokeWidth={1.5} />
-                          : <Eye className="h-4 w-4" strokeWidth={1.5} />}
-                      </button>
-                    </div>
-                  </div>
-
-                  {loginError && (
-                    <p className="text-xs px-3 py-2 rounded"
-                      style={{ background: 'var(--danger-tint)', color: 'var(--danger)', border: '1px solid color-mix(in oklch, var(--danger) 20%, transparent)' }}>
-                      {loginError}
-                    </p>
-                  )}
-
-                  <button type="submit" disabled={loginLoading}
-                    className="r-btn-primary w-full py-2.5 text-sm">
-                    {loginLoading
-                      ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />Signing in...</>
-                      : <>Sign in <ArrowRight className="h-4 w-4" strokeWidth={1.5} /></>}
-                  </button>
-                </form>
-
-                {/* Divider */}
-                <div className="flex items-center gap-3 my-5">
-                  <div className="flex-1 h-px" style={{ background: 'var(--hairline)' }} />
-                  <span className="text-[11px] font-medium" style={{ color: 'var(--ink-faint)' }}>or</span>
-                  <div className="flex-1 h-px" style={{ background: 'var(--hairline)' }} />
-                </div>
-
-                {/* Continue as Demo */}
-                <button onClick={handleDemo}
-                  className="r-btn-ghost w-full py-2.5 text-sm">
-                  Continue as Demo
-                </button>
-
-                <p className="text-center text-xs mt-5" style={{ color: 'var(--ink-faint)' }}>
-                  No account?{' '}
-                  <button onClick={() => setActiveTab('signup')}
-                    className="font-semibold" style={{ color: 'var(--signal)' }}>
-                    Create one
-                  </button>
-                </p>
-              </>
-            )}
-
-            {/* ── Sign Up ── */}
-            {activeTab === 'signup' && (
-              <>
-                <div className="mb-6">
-                  <h2 className="text-base font-bold mb-1">Create an account</h2>
-                  <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>Register your institution's access</p>
-                </div>
-
-                <form onSubmit={handleSignup} className="space-y-4">
-                  {[
-                    { label: 'Full Name',    field: 'name',        value: signupName,        onChange: setSignupName,        placeholder: 'Ahmed Al-Rashidi', type: 'text' },
-                    { label: 'Institution',  field: 'institution', value: signupInstitution, onChange: setSignupInstitution, placeholder: 'Al Rajhi Bank',    type: 'text' },
-                    { label: 'Username',     field: 'username',    value: signupUsername,    onChange: setSignupUsername,    placeholder: 'Choose a username', type: 'text' },
-                  ].map(({ label, value, onChange, placeholder, type }) => (
-                    <div key={label}>
-                      <label className="r-eyebrow block mb-2">{label}</label>
-                      <input type={type} value={value} onChange={(e) => onChange(e.target.value)}
-                        className={inputCls} style={inputStyle} placeholder={placeholder} required />
-                    </div>
-                  ))}
-
-                  <div>
-                    <label className="r-eyebrow block mb-2">Password</label>
-                    <div className="relative">
-                      <input type={showSignupPassword ? 'text' : 'password'}
-                        value={signupPassword} onChange={(e) => setSignupPassword(e.target.value)}
-                        className={inputCls} style={{ ...inputStyle, paddingRight: '2.5rem' }}
-                        placeholder="Min. 6 characters" required />
-                      <button type="button"
-                        onClick={() => setShowSignupPassword(!showSignupPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2"
-                        style={{ color: 'var(--ink-faint)' }}>
-                        {showSignupPassword
-                          ? <EyeOff className="h-4 w-4" strokeWidth={1.5} />
-                          : <Eye className="h-4 w-4" strokeWidth={1.5} />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="r-eyebrow block mb-2">Confirm Password</label>
-                    <input type="password" value={signupConfirm}
-                      onChange={(e) => setSignupConfirm(e.target.value)}
-                      className={inputCls} style={inputStyle}
-                      placeholder="Repeat your password" required />
-                  </div>
-
-                  {signupError && (
-                    <p className="text-xs px-3 py-2 rounded"
-                      style={{ background: 'var(--danger-tint)', color: 'var(--danger)', border: '1px solid color-mix(in oklch, var(--danger) 20%, transparent)' }}>
-                      {signupError}
-                    </p>
-                  )}
-                  {signupSuccess && (
-                    <p className="text-xs px-3 py-2 rounded flex items-center gap-2"
-                      style={{ background: 'var(--safe-tint)', color: 'var(--safe)', border: '1px solid color-mix(in oklch, var(--safe) 20%, transparent)' }}>
-                      <CheckCircle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />{signupSuccess}
-                    </p>
-                  )}
-
-                  <button type="submit" disabled={signupLoading}
-                    className="r-btn-primary w-full py-2.5 text-sm">
-                    {signupLoading
-                      ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />Creating account...</>
-                      : <>Create Account <ArrowRight className="h-4 w-4" strokeWidth={1.5} /></>}
-                  </button>
-                </form>
-
-                <p className="text-center text-xs mt-5" style={{ color: 'var(--ink-faint)' }}>
-                  Already have an account?{' '}
-                  <button onClick={() => setActiveTab('signin')}
-                    className="font-semibold" style={{ color: 'var(--signal)' }}>
-                    Sign in
-                  </button>
-                </p>
-              </>
-            )}
-
-          </div>
-        </div>
-
-      </div>
-
-      {/* Footer */}
-      <footer className="px-8 py-4 text-center" style={{ borderTop: '1px solid var(--hairline)' }}>
-        <p className="text-[11px]" style={{ color: 'var(--ink-faint)' }}>
+        {/* Footer — bottom of panel */}
+        <p className="text-[11px] shrink-0" style={{ color: 'oklch(0.35 0.04 200)' }}>
           FinSight &copy; 2026 &mdash; Graduation Project, Information Systems Department, IMSIU
         </p>
-      </footer>
+      </div>
+
+      {/* ── RIGHT: Auth panel ── */}
+      <div
+        className="flex-1 flex flex-col items-center justify-center p-8"
+        style={{ background: 'var(--surface)', minHeight: '100vh' }}
+      >
+        {/* Mobile-only logo */}
+        <div className="lg:hidden mb-10">
+          <FinSightLogo height={28} onDark={false} />
+        </div>
+
+        <div className="w-full max-w-[360px]">
+
+          {/* Auth card */}
+          <div className="r-panel overflow-hidden">
+
+            {/* Tab switcher */}
+            <div className="grid grid-cols-2" style={{ borderBottom: '1px solid var(--hairline)' }}>
+              {[
+                { key: 'signin', label: 'Sign In' },
+                { key: 'signup', label: 'Create Account' },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => switchTab(key)}
+                  className="py-3.5 text-sm font-semibold transition-colors"
+                  style={{
+                    background: activeTab === key ? 'var(--panel)' : 'var(--surface)',
+                    color: activeTab === key ? 'var(--ink)' : 'var(--ink-faint)',
+                    borderBottom: activeTab === key ? '2px solid var(--signal)' : '2px solid transparent',
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="p-7">
+
+              {/* ── Sign In ── */}
+              {activeTab === 'signin' && (
+                <>
+                  <div className="mb-6">
+                    <h2 className="text-base font-bold mb-1">Welcome back</h2>
+                    <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>Sign in to FinSight</p>
+                  </div>
+
+                  <form onSubmit={handleLogin} className="space-y-4">
+                    <div>
+                      <label className="r-eyebrow block mb-2">Username</label>
+                      <input
+                        type="text"
+                        value={loginUsername}
+                        onChange={(e) => setLoginUsername(e.target.value)}
+                        className={inputCls}
+                        style={inputSt}
+                        placeholder="Enter username"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="r-eyebrow block mb-2">Password</label>
+                      <div className="relative">
+                        <input
+                          type={showLoginPassword ? 'text' : 'password'}
+                          value={loginPassword}
+                          onChange={(e) => setLoginPassword(e.target.value)}
+                          className={inputCls}
+                          style={{ ...inputSt, paddingRight: '2.5rem' }}
+                          placeholder="Enter password"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowLoginPassword(!showLoginPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2"
+                          style={{ color: 'var(--ink-faint)' }}
+                        >
+                          {showLoginPassword
+                            ? <EyeOff className="h-4 w-4" strokeWidth={1.5} />
+                            : <Eye className="h-4 w-4" strokeWidth={1.5} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {loginError && (
+                      <p className="text-xs px-3 py-2 rounded"
+                        style={{
+                          background: 'var(--danger-tint)',
+                          color: 'var(--danger)',
+                          border: '1px solid color-mix(in oklch, var(--danger) 20%, transparent)',
+                        }}>
+                        {loginError}
+                      </p>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={loginLoading}
+                      className="r-btn-primary w-full py-2.5 text-sm"
+                    >
+                      {loginLoading
+                        ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />Signing in...</>
+                        : <>Sign in <ArrowRight className="h-4 w-4" strokeWidth={1.5} /></>}
+                    </button>
+                  </form>
+
+                  <div className="flex items-center gap-3 my-5">
+                    <div className="flex-1 h-px" style={{ background: 'var(--hairline)' }} />
+                    <span className="text-[11px] font-medium" style={{ color: 'var(--ink-faint)' }}>or</span>
+                    <div className="flex-1 h-px" style={{ background: 'var(--hairline)' }} />
+                  </div>
+
+                  <button onClick={handleDemo} className="r-btn-ghost w-full py-2.5 text-sm">
+                    Continue as Demo
+                  </button>
+
+                  <p className="text-center text-xs mt-5" style={{ color: 'var(--ink-faint)' }}>
+                    No account?{' '}
+                    <button
+                      onClick={() => switchTab('signup')}
+                      className="font-semibold"
+                      style={{ color: 'var(--signal)' }}
+                    >
+                      Create one
+                    </button>
+                  </p>
+                </>
+              )}
+
+              {/* ── Sign Up ── */}
+              {activeTab === 'signup' && (
+                <>
+                  <div className="mb-6">
+                    <h2 className="text-base font-bold mb-1">Create an account</h2>
+                    <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>Register your institution's access</p>
+                  </div>
+
+                  <form onSubmit={handleSignup} className="space-y-4">
+                    {[
+                      { label: 'Full Name',    value: signupName,        onChange: setSignupName,        placeholder: 'Ahmed Al-Rashidi',   type: 'text' },
+                      { label: 'Institution',  value: signupInstitution, onChange: setSignupInstitution, placeholder: 'Al Rajhi Bank',      type: 'text' },
+                      { label: 'Username',     value: signupUsername,    onChange: setSignupUsername,    placeholder: 'Choose a username',  type: 'text' },
+                    ].map(({ label, value, onChange, placeholder, type }) => (
+                      <div key={label}>
+                        <label className="r-eyebrow block mb-2">{label}</label>
+                        <input
+                          type={type}
+                          value={value}
+                          onChange={(e) => onChange(e.target.value)}
+                          className={inputCls}
+                          style={inputSt}
+                          placeholder={placeholder}
+                          required
+                        />
+                      </div>
+                    ))}
+
+                    <div>
+                      <label className="r-eyebrow block mb-2">Password</label>
+                      <div className="relative">
+                        <input
+                          type={showSignupPassword ? 'text' : 'password'}
+                          value={signupPassword}
+                          onChange={(e) => setSignupPassword(e.target.value)}
+                          className={inputCls}
+                          style={{ ...inputSt, paddingRight: '2.5rem' }}
+                          placeholder="Min. 6 characters"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowSignupPassword(!showSignupPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2"
+                          style={{ color: 'var(--ink-faint)' }}
+                        >
+                          {showSignupPassword
+                            ? <EyeOff className="h-4 w-4" strokeWidth={1.5} />
+                            : <Eye className="h-4 w-4" strokeWidth={1.5} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="r-eyebrow block mb-2">Confirm Password</label>
+                      <input
+                        type="password"
+                        value={signupConfirm}
+                        onChange={(e) => setSignupConfirm(e.target.value)}
+                        className={inputCls}
+                        style={inputSt}
+                        placeholder="Repeat your password"
+                        required
+                      />
+                    </div>
+
+                    {signupError && (
+                      <p className="text-xs px-3 py-2 rounded"
+                        style={{
+                          background: 'var(--danger-tint)',
+                          color: 'var(--danger)',
+                          border: '1px solid color-mix(in oklch, var(--danger) 20%, transparent)',
+                        }}>
+                        {signupError}
+                      </p>
+                    )}
+                    {signupSuccess && (
+                      <p className="text-xs px-3 py-2 rounded flex items-center gap-2"
+                        style={{
+                          background: 'var(--safe-tint)',
+                          color: 'var(--safe)',
+                          border: '1px solid color-mix(in oklch, var(--safe) 20%, transparent)',
+                        }}>
+                        <CheckCircle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
+                        {signupSuccess}
+                      </p>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={signupLoading}
+                      className="r-btn-primary w-full py-2.5 text-sm"
+                    >
+                      {signupLoading
+                        ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />Creating account...</>
+                        : <>Create Account <ArrowRight className="h-4 w-4" strokeWidth={1.5} /></>}
+                    </button>
+                  </form>
+
+                  <p className="text-center text-xs mt-5" style={{ color: 'var(--ink-faint)' }}>
+                    Already have an account?{' '}
+                    <button
+                      onClick={() => switchTab('signin')}
+                      className="font-semibold"
+                      style={{ color: 'var(--signal)' }}
+                    >
+                      Sign in
+                    </button>
+                  </p>
+                </>
+              )}
+
+            </div>
+          </div>
+
+        </div>
+      </div>
 
     </div>
   );
