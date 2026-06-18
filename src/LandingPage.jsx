@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TrendingUp, Brain, BarChart3, Building2, CheckCircle, Eye, EyeOff, ArrowRight, ShieldCheck } from 'lucide-react';
+import FinSightLogo from './FinSightLogo';
 
 const HARDCODED_USERNAME = 'lender';
 const HARDCODED_PASSWORD = 'finsight2025';
@@ -151,9 +152,9 @@ export default function LandingPage() {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--surface)', color: 'var(--ink)' }}>
 
       {/* Chrome nav bar */}
-      <nav className="h-12 flex items-center justify-between px-8 shrink-0"
+      <nav className="h-14 flex items-center justify-between px-8 shrink-0"
         style={{ background: 'var(--navy-950)', borderBottom: '1px solid var(--navy-800)' }}>
-        <img src="/logo.png" alt="FinSight" className="h-8 w-auto" />
+        <FinSightLogo height={32} />
         <span className="r-eyebrow" style={{ color: 'oklch(0.48 0.035 200)' }}>
           IMSIU — Information Systems Department
         </span>

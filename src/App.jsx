@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Upload, FileText, CheckCircle, AlertTriangle, XCircle, Calculator, TrendingUp, Settings, Save, BarChart3, ArrowRight, ArrowLeft, Building2, DollarSign, Circle, Brain, Zap, X } from 'lucide-react';
 import LoanRecommendationCard from './LoanRecommendationCard';
+import FinSightLogo from './FinSightLogo';
 import { demoDatasets, demoProfiles, DEMO_COLUMNS, processDemoDataset } from './utils/demoData';
 import {
   parseMappedNumeric,
@@ -62,10 +63,10 @@ function NavBar({ currentPage, setCurrentPage, financialData, assessmentResults,
     { key: 'portfolio',  label: 'History',   enabled: true, badge: portfolio.length > 0 ? portfolio.length : null },
   ];
   return (
-    <header className="sticky top-0 z-20 h-12 flex items-center px-8 gap-6 shrink-0"
+    <header className="sticky top-0 z-20 h-14 flex items-center px-8 gap-6 shrink-0"
       style={{ background: 'var(--navy-950)', borderBottom: '1px solid var(--navy-800)' }}>
-      <img src="/logo.png" alt="FinSight" className="h-8 w-auto" />
-      <div className="h-4 w-px shrink-0" style={{ background: 'var(--navy-800)' }} />
+      <FinSightLogo height={32} />
+      <div className="h-6 w-px shrink-0" style={{ background: 'var(--navy-800)' }} />
       <nav className="flex items-center gap-0.5">
         {links.map(({ key, label, enabled, badge }) => {
           const active = currentPage === key;
