@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TrendingUp, Brain, BarChart3, Building2, CheckCircle, Eye, EyeOff, ArrowRight, ShieldCheck } from 'lucide-react';
+import { TrendingUp, Brain, BarChart3, CheckCircle, Eye, EyeOff, ArrowRight, CreditCard } from 'lucide-react';
 import FinSightLogo from './FinSightLogo';
 
 const HARDCODED_USERNAME = 'lender';
@@ -10,27 +10,22 @@ const FEATURES = [
   {
     icon: BarChart3,
     title: '7-Ratio Scoring Engine',
-    desc: 'Current Ratio, D/E, EBITDA Margin, ROA, DSCR, Quick Ratio, and ICR — configurable weights with SAMA-aligned benchmarks across 7 sectors.',
+    desc: 'Scores Current Ratio, D/E, EBITDA Margin, ROA, DSCR, Quick Ratio, and ICR with configurable weights against SAMA-aligned benchmarks across 7 Saudi sectors.',
   },
   {
     icon: Brain,
-    title: 'Altman Z′′-Score Classification',
-    desc: 'Private non-manufacturing variant. Classifies bankruptcy risk into Safe, Grey, and Distress zones from balance-sheet data.',
+    title: 'Risk Classification',
+    desc: 'Altman Z′′-Score bankruptcy modeling (Safe / Grey / Distress) combined with LightGBM probability-of-default — a full credit risk profile from balance-sheet inputs.',
   },
   {
     icon: TrendingUp,
     title: '6-Month Cash Flow Forecast',
-    desc: 'Double Exponential Smoothing or ARIMA projection with adaptive confidence bands and LightGBM probability-of-default per month.',
+    desc: 'Double Exponential Smoothing or ARIMA projection with adaptive confidence bands — surface cash shortfalls before they become credit events.',
   },
   {
-    icon: ShieldCheck,
-    title: 'Knockout Disqualifiers',
-    desc: 'Hard rules: negative equity, critical liquidity failure (CR < 0.5), negative cash flow with debt, DSCR breach, and ICR below 1.0x.',
-  },
-  {
-    icon: Building2,
-    title: 'Industry Benchmarks',
-    desc: 'Thresholds calibrated to 7 Saudi sectors: SaaS, Retail, Construction, Logistics, Manufacturing, Tourism, and Healthcare.',
+    icon: CreditCard,
+    title: 'Loan Recommendation',
+    desc: 'Structures an optimal facility — amount, tenor, and rate — based on the applicant\'s DSCR capacity, risk tier, and collateral position.',
   },
 ];
 
@@ -203,8 +198,8 @@ export default function LandingPage() {
                   <Icon className="h-3.5 w-3.5" style={{ color: 'var(--signal)' }} strokeWidth={1.5} />
                 </div>
                 <div>
-                  <p className="text-xs font-semibold mb-0.5" style={{ color: '#ffffff' }}>{title}</p>
-                  <p className="text-[11px] leading-relaxed" style={{ color: 'oklch(0.52 0.022 205)' }}>{desc}</p>
+                  <p className="text-[15px] font-semibold mb-1" style={{ color: '#ffffff' }}>{title}</p>
+                  <p className="text-[13px] leading-relaxed" style={{ color: 'oklch(0.52 0.022 205)' }}>{desc}</p>
                 </div>
               </div>
             ))}
